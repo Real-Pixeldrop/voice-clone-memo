@@ -275,6 +275,18 @@ struct MainView: View {
                 .padding(.vertical, 4)
             }
 
+            // Mic permission warning
+            if voiceManager.recorder.permissionDenied {
+                HStack {
+                    Image(systemName: "exclamationmark.triangle")
+                        .foregroundColor(.orange)
+                    Text("Accès micro refusé. Autorise dans Réglages > Confidentialité > Micro.")
+                        .font(.caption)
+                        .foregroundColor(.orange)
+                }
+                .padding(.horizontal)
+            }
+
             // Status
             if !voiceManager.statusMessage.isEmpty {
                 Text(voiceManager.statusMessage)

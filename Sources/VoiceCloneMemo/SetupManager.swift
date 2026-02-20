@@ -467,6 +467,6 @@ def list_voices():
 if __name__ == "__main__":
     load_model()
     print("Qwen3-TTS serveur local sur http://localhost:5123")
-    app.run(host="0.0.0.0", port=5123, debug=False)
+    app.run(host="127.0.0.1", port=5123, debug=False)
 """
 }
