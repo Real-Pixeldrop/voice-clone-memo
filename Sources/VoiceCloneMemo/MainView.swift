@@ -1094,7 +1094,7 @@ struct MainView: View {
     // MARK: - Natural Speech Helper
 
     private func injectFillers(_ input: String) -> String {
-        let fillers = ["euh...", "hm...", "enfin...", "tu vois...", "disons..."]
+        let fillers = ["euh...", "hm...", "bon...", "genre...", "bah..."]
         // Split into sentences
         var sentences = input.components(separatedBy: ". ")
         for i in 0..<sentences.count {
