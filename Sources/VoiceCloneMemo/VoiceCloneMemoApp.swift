@@ -165,34 +165,21 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
     }
 
     func startLocalServerIfNeeded() {
+        // Only auto-start if local provider is selected
+        guard voiceManager.config.provider == .local else { return }
+
         let startScript = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".voiceclonememo/start.sh")
 
         guard FileManager.default.fileExists(atPath: startScript.path) else { return }
 
-        // Check if server is already running
-        if let url = URL(string: "http://localhost:5123/health") {
-            var request = URLRequest(url: url)
-            request.timeoutInterval = 1
-            let semaphore = DispatchSemaphore(value: 0)
-            var isRunning = false
-            URLSession.shared.dataTask(with: request) { data, _, _ in
-                isRunning = data != nil
-                semaphore.signal()
-            }.resume()
-            semaphore.wait()
-            if isRunning { return }
-        }
-
-        // Start server in background
-        DispatchQueue.global().async { [weak self] in
-            let task = Process()
-            task.launchPath = "/bin/bash"
-            task.arguments = [startScript.path]
-            task.standardOutput = FileHandle.nullDevice
-            task.standardError = FileHandle.nullDevice
-            try? task.run()
-            self?.localServer = task
+        // Use ensureLocalServerRunning which handles first-launch model download
+        voiceManager.ensureLocalServerRunning { [weak self] success in
+            if success {
+                DispatchQueue.main.async {
+                    self?.voiceManager.localServerRunning = true
+                }
+            }
         }
     }
 

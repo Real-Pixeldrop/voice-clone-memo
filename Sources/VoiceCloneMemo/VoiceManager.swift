@@ -230,19 +230,29 @@ class VoiceManager: ObservableObject {
     private func runLocalInstall() {
         let home = FileManager.default.homeDirectoryForCurrentUser
         let installDir = home.appendingPathComponent(".voiceclonememo")
+        let dedicatedCondaDir = installDir.appendingPathComponent("miniconda3")
         try? FileManager.default.createDirectory(at: installDir, withIntermediateDirectories: true)
 
         // Step 1: Find or install conda
         updateInstallUI(step: "Recherche de Python/Conda...", progress: 0.05)
-        let condaPaths = [
-            home.appendingPathComponent("miniconda3/bin/conda").path,
-            home.appendingPathComponent("anaconda3/bin/conda").path,
-            home.appendingPathComponent("miniforge3/bin/conda").path,
-            "/usr/local/bin/conda",
-            "/opt/homebrew/bin/conda"
-        ]
 
-        var condaPath = condaPaths.first { FileManager.default.fileExists(atPath: $0) }
+        // Check dedicated install location first
+        let dedicatedConda = dedicatedCondaDir.appendingPathComponent("bin/conda").path
+        var condaPath: String? = nil
+        if FileManager.default.fileExists(atPath: dedicatedConda) {
+            condaPath = dedicatedConda
+        }
+
+        if condaPath == nil {
+            let condaPaths = [
+                home.appendingPathComponent("miniconda3/bin/conda").path,
+                home.appendingPathComponent("anaconda3/bin/conda").path,
+                home.appendingPathComponent("miniforge3/bin/conda").path,
+                "/usr/local/bin/conda",
+                "/opt/homebrew/bin/conda"
+            ]
+            condaPath = condaPaths.first { FileManager.default.fileExists(atPath: $0) }
+        }
 
         if condaPath == nil {
             // Check PATH
@@ -256,7 +266,7 @@ class VoiceManager: ObservableObject {
         }
 
         if condaPath == nil {
-            // Install miniconda
+            // Install miniconda into dedicated directory
             updateInstallUI(step: "Téléchargement de Miniconda...", progress: 0.08)
             let arch = shellRun("/usr/bin/uname -m").output.trimmingCharacters(in: .whitespacesAndNewlines)
             let url = arch == "arm64"
@@ -271,14 +281,15 @@ class VoiceManager: ObservableObject {
             }
 
             updateInstallUI(step: "Installation de Miniconda...", progress: 0.12)
-            let install = shellRun("/bin/bash /tmp/miniconda.sh -b -p \(home.path)/miniconda3")
+            let install = shellRun("/bin/bash /tmp/miniconda.sh -b -p \(dedicatedCondaDir.path)")
             guard install.status == 0 else {
                 updateInstallUI(step: "Erreur : installation Miniconda échouée", progress: 0)
                 DispatchQueue.main.async { self.localModelStatus = .notInstalled }
                 return
             }
-            condaPath = home.appendingPathComponent("miniconda3/bin/conda").path
-            _ = shellRun("\(condaPath!) init bash zsh 2>/dev/null")
+            condaPath = dedicatedConda
+            // Clean up installer
+            try? FileManager.default.removeItem(atPath: "/tmp/miniconda.sh")
         }
 
         guard let conda = condaPath else {
@@ -292,6 +303,7 @@ class VoiceManager: ObservableObject {
         let envCheck = shellRun("\(conda) env list 2>/dev/null")
         if !envCheck.output.contains("vcm") {
             _ = shellRun("\(conda) tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main 2>&1")
+            _ = shellRun("\(conda) tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r 2>&1")
             let create = shellRun("\(conda) create -n vcm python=3.11 -y 2>&1")
             guard create.status == 0 else {
                 updateInstallUI(step: "Erreur : création environnement échouée", progress: 0)
@@ -302,8 +314,22 @@ class VoiceManager: ObservableObject {
 
         // Step 3: Install deps (qwen-tts installs transformers automatically)
         updateInstallUI(step: "Installation de PyTorch et qwen-tts (quelques minutes)...", progress: 0.25)
-        let deps = shellRun("\(conda) run -n vcm pip install --quiet torch torchaudio flask soundfile psutil qwen-tts 2>&1")
-        guard deps.status == 0 else {
+        let depsOk: Bool
+        let deps = shellRun("\(conda) run -n vcm pip install --quiet torch torchaudio flask soundfile numpy psutil qwen-tts 2>&1")
+        if deps.status == 0 {
+            depsOk = true
+        } else {
+            // Fallback: try with full pip path
+            let fallbackCondaDir = URL(fileURLWithPath: conda).deletingLastPathComponent().deletingLastPathComponent()
+            let pip = fallbackCondaDir.appendingPathComponent("envs/vcm/bin/pip").path
+            if FileManager.default.fileExists(atPath: pip) {
+                let r = shellRun("\(pip) install --quiet torch torchaudio flask soundfile numpy psutil qwen-tts 2>&1")
+                depsOk = r.status == 0
+            } else {
+                depsOk = false
+            }
+        }
+        guard depsOk else {
             updateInstallUI(step: "Erreur : installation dépendances échouée", progress: 0)
             DispatchQueue.main.async { self.localModelStatus = .notInstalled }
             return
@@ -316,12 +342,12 @@ class VoiceManager: ObservableObject {
 
         // Step 5: Create start script
         updateInstallUI(step: "Finalisation...", progress: 0.96)
-        let condaDir = URL(fileURLWithPath: conda).deletingLastPathComponent().deletingLastPathComponent()
+        let scriptCondaDir = URL(fileURLWithPath: conda).deletingLastPathComponent().deletingLastPathComponent()
         let startScript = installDir.appendingPathComponent("start.sh")
         let bashScript = """
         #!/bin/bash
-        export PATH="\(condaDir.path)/bin:$PATH"
-        eval "$(\(condaDir.path)/bin/conda shell.bash hook)"
+        export PATH="\(scriptCondaDir.path)/bin:$PATH"
+        eval "$(\(scriptCondaDir.path)/bin/conda shell.bash hook)"
         conda activate vcm
         python3 ~/.voiceclonememo/server.py
         """
@@ -395,6 +421,16 @@ class VoiceManager: ObservableObject {
         }
     }
 
+    /// Whether this is the first time the model needs to be downloaded (~2-4 Go).
+    /// When true, we allow up to 10 minutes for the server health check.
+    private var isFirstModelDownload: Bool {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let hfCache = home.appendingPathComponent(".cache/huggingface/hub")
+        guard FileManager.default.fileExists(atPath: hfCache.path) else { return true }
+        let contents = (try? FileManager.default.contentsOfDirectory(atPath: hfCache.path)) ?? []
+        return !contents.contains { $0.lowercased().contains("qwen") && $0.lowercased().contains("tts") }
+    }
+
     func ensureLocalServerRunning(completion: @escaping (Bool) -> Void) {
         // First check if server is already running
         guard let healthURL = URL(string: "http://localhost:5123/health") else {
@@ -427,8 +463,14 @@ class VoiceManager: ObservableObject {
                 return
             }
 
+            let firstDownload = self.isFirstModelDownload
+
             DispatchQueue.main.async {
-                self.statusMessage = "Démarrage du serveur Qwen3..."
+                if firstDownload {
+                    self.statusMessage = "Téléchargement du modèle Qwen3-TTS (première fois uniquement, ~5 min)..."
+                } else {
+                    self.statusMessage = "Démarrage du serveur Qwen3..."
+                }
             }
 
             // Launch server in background with MODEL_SIZE env var
@@ -452,16 +494,34 @@ class VoiceManager: ObservableObject {
                     return
                 }
 
-                // Wait for server to be ready (poll every 2 sec, max 90 sec for model loading)
+                // Wait for server to be ready
+                // First launch (model download): 10 minutes (300 * 2s)
+                // Subsequent launches (model cached): 90 seconds (45 * 2s)
+                let maxAttempts = firstDownload ? 300 : 45
                 var attempts = 0
-                let maxAttempts = 45  // 45 * 2 = 90 seconds
 
                 while attempts < maxAttempts {
                     sleep(2)
                     attempts += 1
 
+                    // Check if server process died
+                    if !task.isRunning {
+                        DispatchQueue.main.async {
+                            self.statusMessage = "Le serveur s'est arrêté. Vérifie l'installation dans ⚙️."
+                        }
+                        completion(false)
+                        return
+                    }
+
+                    let elapsedSec = attempts * 2
                     DispatchQueue.main.async {
-                        self.statusMessage = "Chargement du modèle Qwen3 (\(attempts * 2)s)..."
+                        if firstDownload {
+                            let minutes = elapsedSec / 60
+                            let seconds = elapsedSec % 60
+                            self.statusMessage = "Téléchargement du modèle en cours... \(minutes)m\(String(format: "%02d", seconds))s (première fois uniquement)"
+                        } else {
+                            self.statusMessage = "Chargement du modèle Qwen3 (\(elapsedSec)s)..."
+                        }
                     }
 
                     var serverReady = false
@@ -487,7 +547,11 @@ class VoiceManager: ObservableObject {
 
                 // Timeout
                 DispatchQueue.main.async {
-                    self.statusMessage = "Le serveur met trop de temps à démarrer. Vérifie l'installation."
+                    if firstDownload {
+                        self.statusMessage = "Timeout : le modèle met trop de temps à télécharger. Vérifie ta connexion internet."
+                    } else {
+                        self.statusMessage = "Le serveur met trop de temps à démarrer. Vérifie l'installation."
+                    }
                 }
                 completion(false)
             }

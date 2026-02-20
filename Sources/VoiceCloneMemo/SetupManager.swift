@@ -8,25 +8,39 @@ class SetupManager: ObservableObject {
     @Published var currentStep: String = ""
     @Published var error: String?
     @Published var isComplete = false
+    @Published var isFirstLaunch = false
 
     private let installDir: URL
     private let serverScript: URL
     private let startScript: URL
+    private let condaDir: URL
 
     init() {
         let home = FileManager.default.homeDirectoryForCurrentUser
         installDir = home.appendingPathComponent(".voiceclonememo")
         serverScript = installDir.appendingPathComponent("server.py")
         startScript = installDir.appendingPathComponent("start.sh")
+        condaDir = installDir.appendingPathComponent("miniconda3")
 
         checkSetup()
     }
 
     func checkSetup() {
-        // Model downloads automatically on first run via from_pretrained()
-        // Just check if server script and start script exist
         let serverExists = FileManager.default.fileExists(atPath: serverScript.path)
         let startExists = FileManager.default.fileExists(atPath: startScript.path)
+
+        // Check if model has been downloaded before (cache exists)
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let hfCache = home.appendingPathComponent(".cache/huggingface/hub")
+        let cacheExists = FileManager.default.fileExists(atPath: hfCache.path)
+        if cacheExists {
+            // Check if any qwen-tts model dir exists
+            let contents = (try? FileManager.default.contentsOfDirectory(atPath: hfCache.path)) ?? []
+            let hasModel = contents.contains { $0.lowercased().contains("qwen") && $0.lowercased().contains("tts") }
+            isFirstLaunch = !hasModel
+        } else {
+            isFirstLaunch = true
+        }
 
         isSetupNeeded = !(serverExists && startExists)
         isComplete = !isSetupNeeded
@@ -114,7 +128,13 @@ class SetupManager: ObservableObject {
     private func installConda() -> String? {
         let home = FileManager.default.homeDirectoryForCurrentUser
 
-        // Check common conda locations
+        // Check our dedicated install location first
+        let dedicatedConda = condaDir.appendingPathComponent("bin/conda").path
+        if FileManager.default.fileExists(atPath: dedicatedConda) {
+            return dedicatedConda
+        }
+
+        // Check common conda locations (user may already have conda)
         let condaPaths = [
             home.appendingPathComponent("miniconda3/bin/conda").path,
             home.appendingPathComponent("anaconda3/bin/conda").path,
@@ -133,10 +153,10 @@ class SetupManager: ObservableObject {
         let whichResult = shell("/usr/bin/which conda")
         if whichResult.status == 0 {
             let path = whichResult.output.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !path.isEmpty { return path }
+            if !path.isEmpty && FileManager.default.fileExists(atPath: path) { return path }
         }
 
-        // Download and install Miniconda
+        // Download and install Miniconda into our dedicated directory
         updateUI(step: "Téléchargement de Miniconda...", progress: 0.08)
 
         let arch = shell("/usr/bin/uname -m").output.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -151,19 +171,18 @@ class SetupManager: ObservableObject {
         guard dlResult.status == 0 else { return nil }
 
         updateUI(step: "Installation de Miniconda...", progress: 0.12)
-        let condaBin = home.appendingPathComponent("miniconda3/bin/conda").path
-        let installResult = shell("/bin/bash /tmp/miniconda.sh -b -p \(home.path)/miniconda3")
+        let installResult = shell("/bin/bash /tmp/miniconda.sh -b -p \(condaDir.path)")
         guard installResult.status == 0 else { return nil }
 
-        // Init conda for shells
-        _ = shell("\(condaBin) init bash zsh 2>/dev/null")
+        // Clean up installer
+        try? FileManager.default.removeItem(atPath: "/tmp/miniconda.sh")
 
-        return condaBin
+        return dedicatedConda
     }
 
     private func createCondaEnv(conda: String) -> Bool {
-        let condaDir = URL(fileURLWithPath: conda).deletingLastPathComponent().deletingLastPathComponent()
-        let envDir = condaDir.appendingPathComponent("envs/vcm")
+        let resolvedCondaDir = URL(fileURLWithPath: conda).deletingLastPathComponent().deletingLastPathComponent()
+        let envDir = resolvedCondaDir.appendingPathComponent("envs/vcm")
 
         // Check if env already exists by looking at the directory
         if FileManager.default.fileExists(atPath: envDir.appendingPathComponent("bin/python3").path) {
@@ -187,13 +206,13 @@ class SetupManager: ObservableObject {
     private func installDeps(conda: String) -> Bool {
         // Use conda run to ensure correct env
         updateUI(step: "Installation de PyTorch et qwen-tts (peut prendre quelques minutes)...", progress: 0.30)
-        let deps = shell("\(conda) run -n vcm pip install --quiet torch torchaudio flask soundfile psutil qwen-tts 2>&1")
+        let deps = shell("\(conda) run -n vcm pip install --quiet torch torchaudio flask soundfile numpy psutil qwen-tts 2>&1")
         guard deps.status == 0 else {
             // Fallback: try with full pip path
-            let condaDir = URL(fileURLWithPath: conda).deletingLastPathComponent().deletingLastPathComponent()
-            let pip = condaDir.appendingPathComponent("envs/vcm/bin/pip").path
+            let resolvedCondaDir = URL(fileURLWithPath: conda).deletingLastPathComponent().deletingLastPathComponent()
+            let pip = resolvedCondaDir.appendingPathComponent("envs/vcm/bin/pip").path
             if FileManager.default.fileExists(atPath: pip) {
-                let r = shell("\(pip) install --quiet torch torchaudio flask soundfile psutil qwen-tts 2>&1")
+                let r = shell("\(pip) install --quiet torch torchaudio flask soundfile numpy psutil qwen-tts 2>&1")
                 guard r.status == 0 else { return false }
             } else {
                 return false
@@ -204,7 +223,6 @@ class SetupManager: ObservableObject {
     }
 
     private func copyServerFiles() -> Bool {
-        // Get the server.py from the app bundle or embedded resource
         let serverContent = Self.embeddedServerPy
         do {
             try serverContent.write(to: serverScript, atomically: true, encoding: .utf8)
@@ -215,12 +233,12 @@ class SetupManager: ObservableObject {
     }
 
     private func createStartScript(conda: String) {
-        let condaDir = URL(fileURLWithPath: conda).deletingLastPathComponent().deletingLastPathComponent()
+        let resolvedCondaDir = URL(fileURLWithPath: conda).deletingLastPathComponent().deletingLastPathComponent()
 
         let script = """
         #!/bin/bash
-        export PATH="\(condaDir.path)/bin:$PATH"
-        eval "$(\(condaDir.path)/bin/conda shell.bash hook)"
+        export PATH="\(resolvedCondaDir.path)/bin:$PATH"
+        eval "$(\(resolvedCondaDir.path)/bin/conda shell.bash hook)"
         conda activate vcm
         python3 ~/.voiceclonememo/server.py
         """
@@ -264,6 +282,7 @@ import os
 import json
 import uuid
 import time
+import numpy as np
 
 from flask import Flask, request, jsonify, send_file
 
@@ -285,28 +304,27 @@ def load_model():
     print(f"RAM: {total_ram_gb:.1f} Go")
 
     model_override = os.environ.get("MODEL_SIZE", "auto")
-    print(f"MODEL_SIZE override: {model_override}")
-
     if model_override == "0.6b":
         model_name = "Qwen/Qwen3-TTS-12Hz-0.6B-Base"
     elif model_override == "1.7b":
         model_name = "Qwen/Qwen3-TTS-12Hz-1.7B-Base"
-    else:
+    else:  # auto
         if total_ram_gb <= 12:
             model_name = "Qwen/Qwen3-TTS-12Hz-0.6B-Base"
         else:
             model_name = "Qwen/Qwen3-TTS-12Hz-1.7B-Base"
 
-    if "0.6B" in model_name or total_ram_gb <= 12:
+    if total_ram_gb <= 12:
         device = "cpu"
         dtype = torch.float32
+    elif torch.backends.mps.is_available():
+        device = "mps"
+        dtype = torch.float32
+    elif torch.cuda.is_available():
+        device = "cuda:0"
+        dtype = torch.bfloat16
     else:
-        if torch.backends.mps.is_available():
-            device = "mps"
-        elif torch.cuda.is_available():
-            device = "cuda:0"
-        else:
-            device = "cpu"
+        device = "cpu"
         dtype = torch.float32
 
     print(f"Modele: {model_name} | Device: {device}")
@@ -341,12 +359,22 @@ def text_to_speech():
     text = data.get("text", "")
     voice_id = data.get("voice_id", "")
     instruction = data.get("instruction", "")
+    # audio_path allows the Swift app to pass a direct path to a reference audio
+    audio_path_direct = data.get("audio_path", "")
+
     if not text:
         return jsonify({"error": "No text provided"}), 400
+
     try:
         ref_audio_path = None
         ref_text = None
-        if voice_id:
+
+        # Priority 1: direct audio path from the app
+        if audio_path_direct and os.path.exists(audio_path_direct):
+            ref_audio_path = audio_path_direct
+
+        # Priority 2: voice_id lookup
+        if not ref_audio_path and voice_id:
             voice_dir = os.path.join(VOICES_DIR, voice_id)
             ref_path = os.path.join(voice_dir, "reference.wav")
             meta_path = os.path.join(voice_dir, "meta.json")
@@ -355,17 +383,63 @@ def text_to_speech():
                 if os.path.exists(meta_path):
                     with open(meta_path) as f:
                         meta = json.load(f)
-                        ref_text = meta.get("transcript", "") or None
+                        ref_text = meta.get("transcript") or None
+
         prompt = text
-        if instruction:
-            prompt = f"[{instruction}] {text}"
-        if ref_audio_path:
-            wavs, sr = model.generate_voice_clone(text=prompt, language="Auto", ref_audio=ref_audio_path, ref_text=ref_text)
+        # Note: instruction/tone control only works with VoiceDesign models
+        # Base models (0.6B, 1.7B) read instruction as text, so we skip it
+
+        if ref_audio_path and os.path.exists(ref_audio_path):
+            # Voice clone mode with reference audio
+            print(f"TTS with voice clone: {ref_audio_path}, ref_text: {ref_text}")
+            if ref_text:
+                # ICL mode: best quality, needs transcript
+                wavs, sr = model.generate_voice_clone(
+                    text=prompt,
+                    language="Auto",
+                    ref_audio=ref_audio_path,
+                    ref_text=ref_text,
+                )
+            else:
+                # x-vector mode: clone by voice embedding only (no transcript)
+                wavs, sr = model.generate_voice_clone(
+                    text=prompt,
+                    language="Auto",
+                    ref_audio=ref_audio_path,
+                    ref_text=None,
+                    x_vector_only_mode=True,
+                )
         else:
-            wavs, sr = model.generate_voice_clone(text=prompt, language="Auto", ref_audio=None, ref_text=None, x_vector_only_mode=True)
+            # No reference audio - generate with default voice
+            print("TTS without voice reference (default voice)")
+
+            # Create a short silence file as dummy reference
+            dummy_path = os.path.join(OUTPUT_DIR, "dummy_ref.wav")
+            if not os.path.exists(dummy_path):
+                silence = np.zeros(24000, dtype=np.float32)
+                sf.write(dummy_path, silence, 24000)
+
+            try:
+                wavs, sr = model.generate_voice_clone(
+                    text=prompt,
+                    language="Auto",
+                    ref_audio=dummy_path,
+                    ref_text="silence",
+                    x_vector_only_mode=True,
+                )
+            except Exception as e:
+                print(f"x_vector_only_mode failed: {e}, trying direct generation...")
+                wavs, sr = model.generate_voice_clone(
+                    text=prompt,
+                    language="Auto",
+                    ref_audio=dummy_path,
+                    ref_text="Hello, this is a test of the voice.",
+                )
+
         output_path = os.path.join(OUTPUT_DIR, f"memo_{int(time.time())}.wav")
         sf.write(output_path, wavs[0], sr)
         return send_file(output_path, mimetype="audio/wav")
+
     except Exception as e:
         import traceback
         traceback.print_exc()

@@ -69,7 +69,7 @@ struct SetupView: View {
                 Button(action: { setupManager.startSetup() }) {
                     HStack {
                         Image(systemName: "arrow.down.circle")
-                        Text("Installer Qwen3-TTS (~4 Go)")
+                        Text("Installer Qwen3-TTS")
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 8)
@@ -84,9 +84,10 @@ struct SetupView: View {
                 }
                 .buttonStyle(.plain)
 
-                Text("Connexion internet requise pour le téléchargement initial")
+                Text("Tout s'installe automatiquement. Le modèle (~2-4 Go) se télécharge au premier lancement.")
                     .font(.caption2)
                     .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
             }
             .padding(.horizontal, 24)
             .padding(.bottom, 20)
