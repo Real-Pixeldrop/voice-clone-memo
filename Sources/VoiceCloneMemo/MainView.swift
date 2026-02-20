@@ -133,42 +133,76 @@ struct MainView: View {
 
             // Last generated
             if let lastURL = voiceManager.lastGeneratedURL {
-                HStack {
-                    Button(action: { playAudio(lastURL) }) {
-                        HStack {
-                            Image(systemName: "play.circle")
-                            Text("Écouter")
+                VStack(spacing: 8) {
+                    // Audio player bar
+                    HStack(spacing: 12) {
+                        Button(action: { playAudio(lastURL) }) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "play.circle.fill")
+                                    .font(.title2)
+                                    .foregroundColor(.accentColor)
+                                VStack(alignment: .leading) {
+                                    Text("Mémo vocal prêt")
+                                        .font(.system(size: 12, weight: .medium))
+                                    Text(lastURL.lastPathComponent)
+                                        .font(.caption2)
+                                        .foregroundColor(.secondary)
+                                }
+                            }
                         }
-                        .font(.caption)
-                    }
-                    .buttonStyle(.plain)
+                        .buttonStyle(.plain)
 
-                    Button(action: { copyToClipboard(lastURL) }) {
-                        HStack {
-                            Image(systemName: "doc.on.doc")
-                            Text("Copier")
-                        }
-                        .font(.caption)
+                        Spacer()
                     }
-                    .buttonStyle(.plain)
+                    .padding(8)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(Color.accentColor.opacity(0.08)))
 
-                    Button(action: { shareAudio(lastURL) }) {
-                        HStack {
-                            Image(systemName: "square.and.arrow.up")
-                            Text("Partager")
+                    // Action buttons
+                    HStack(spacing: 8) {
+                        Button(action: { saveAudioAs(lastURL) }) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "arrow.down.to.line")
+                                Text("Enregistrer")
+                            }
+                            .font(.system(size: 11))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 5)
                         }
-                        .font(.caption)
-                    }
-                    .buttonStyle(.plain)
+                        .buttonStyle(.bordered)
 
-                    Button(action: { revealInFinder(lastURL) }) {
-                        HStack {
-                            Image(systemName: "folder")
-                            Text("Finder")
+                        Button(action: { shareAudio(lastURL) }) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "square.and.arrow.up")
+                                Text("Partager")
+                            }
+                            .font(.system(size: 11))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 5)
                         }
-                        .font(.caption)
+                        .buttonStyle(.bordered)
+
+                        Button(action: { copyFileToClipboard(lastURL) }) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "doc.on.doc")
+                                Text("Copier")
+                            }
+                            .font(.system(size: 11))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 5)
+                        }
+                        .buttonStyle(.bordered)
+
+                        Button(action: { revealInFinder(lastURL) }) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "folder")
+                                Text("Finder")
+                            }
+                            .font(.system(size: 11))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 5)
+                        }
+                        .buttonStyle(.bordered)
                     }
-                    .buttonStyle(.plain)
                 }
                 .padding(.horizontal)
             }
@@ -662,9 +696,20 @@ struct MainView: View {
         NSWorkspace.shared.open(url)
     }
 
-    func copyToClipboard(_ url: URL) {
+    func saveAudioAs(_ url: URL) {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.audio]
+        panel.nameFieldStringValue = url.lastPathComponent
+        panel.canCreateDirectories = true
+
+        if panel.runModal() == .OK, let dest = panel.url {
+            try? FileManager.default.copyItem(at: url, to: dest)
+        }
+    }
+
+    func copyFileToClipboard(_ url: URL) {
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(url.path, forType: .string)
+        NSPasteboard.general.writeObjects([url as NSURL])
     }
 
     func shareAudio(_ url: URL) {
