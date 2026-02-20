@@ -6,13 +6,17 @@ class AutoUpdater: ObservableObject {
     @Published var latestVersion: String = ""
     @Published var isUpdating = false
     @Published var updateStatus: String = ""
+    @Published var updateError: String?
 
-    private let currentVersion = "4.3.0"
+    let currentVersion = "4.4.0"
     private let repoOwner = "Real-Pixeldrop"
     private let repoName = "voice-clone-memo"
 
     init() {
-        checkForUpdates()
+        // Delay check to let the UI load first
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+            self?.checkForUpdates()
+        }
     }
 
     func checkForUpdates() {
@@ -42,16 +46,49 @@ class AutoUpdater: ObservableObject {
 
     func performUpdate() {
         isUpdating = true
-        updateStatus = "Téléchargement..."
+        updateError = nil
+        updateStatus = "Téléchargement en cours..."
 
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+        let zipURLString = "https://github.com/\(repoOwner)/\(repoName)/releases/latest/download/VoiceCloneMemo.zip"
+        guard let zipURL = URL(string: zipURLString) else {
+            failUpdate("URL invalide")
+            return
+        }
+
+        // Use URLSession to download (more reliable than shell curl)
+        let downloadTask = URLSession.shared.downloadTask(with: zipURL) { [weak self] tempURL, response, error in
             guard let self = self else { return }
 
-            let zipURL = "https://github.com/\(self.repoOwner)/\(self.repoName)/releases/latest/download/VoiceCloneMemo.zip"
-            let tmpZip = "/tmp/vcm_update.zip"
-            let appPath = Bundle.main.bundlePath
+            if let error = error {
+                self.failUpdate("Erreur téléchargement : \(error.localizedDescription)")
+                return
+            }
 
-            // Determine install location (use current app's parent directory)
+            guard let tempURL = tempURL else {
+                self.failUpdate("Fichier téléchargé introuvable")
+                return
+            }
+
+            // Check HTTP status
+            if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode != 200 {
+                self.failUpdate("Erreur serveur (HTTP \(httpResponse.statusCode))")
+                return
+            }
+
+            self.updateUI("Installation...")
+
+            // Copy to /tmp for processing
+            let tmpZip = URL(fileURLWithPath: "/tmp/vcm_update.zip")
+            try? FileManager.default.removeItem(at: tmpZip)
+            do {
+                try FileManager.default.copyItem(at: tempURL, to: tmpZip)
+            } catch {
+                self.failUpdate("Erreur copie : \(error.localizedDescription)")
+                return
+            }
+
+            // Determine install directory
+            let appPath = Bundle.main.bundlePath
             let installDir: String
             if appPath.hasPrefix("/Applications") {
                 installDir = "/Applications"
@@ -59,43 +96,71 @@ class AutoUpdater: ObservableObject {
                 installDir = (appPath as NSString).deletingLastPathComponent
             }
 
-            // Step 1: Download
-            self.updateUI("Téléchargement de la mise à jour...")
-            let dl = self.shell("/usr/bin/curl -sL \(zipURL) -o \(tmpZip)")
-            guard dl.status == 0 else {
-                self.updateUI("Erreur de téléchargement")
-                DispatchQueue.main.async { self.isUpdating = false }
+            // Unzip
+            let unzipTask = Process()
+            unzipTask.launchPath = "/usr/bin/unzip"
+            unzipTask.arguments = ["-o", tmpZip.path, "-d", installDir]
+            unzipTask.standardOutput = FileHandle.nullDevice
+            unzipTask.standardError = Pipe()
+
+            do {
+                try unzipTask.run()
+                unzipTask.waitUntilExit()
+            } catch {
+                self.failUpdate("Erreur décompression : \(error.localizedDescription)")
                 return
             }
 
-            // Step 2: Unzip (overwrite)
-            self.updateUI("Installation...")
-            let unzip = self.shell("/usr/bin/unzip -o \(tmpZip) -d \(installDir)")
-            guard unzip.status == 0 else {
-                self.updateUI("Erreur d'installation")
-                DispatchQueue.main.async { self.isUpdating = false }
+            if unzipTask.terminationStatus != 0 {
+                // Read stderr for details
+                if let errPipe = unzipTask.standardError as? Pipe {
+                    let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
+                    let errStr = String(data: errData, encoding: .utf8) ?? "inconnue"
+                    self.failUpdate("Erreur unzip (\(unzipTask.terminationStatus)): \(errStr)")
+                } else {
+                    self.failUpdate("Erreur unzip (code \(unzipTask.terminationStatus))")
+                }
                 return
             }
 
-            // Step 3: Clear quarantine
-            _ = self.shell("/usr/bin/xattr -cr \(installDir)/VoiceCloneMemo.app")
+            // Clear quarantine
+            let xattrTask = Process()
+            xattrTask.launchPath = "/usr/bin/xattr"
+            xattrTask.arguments = ["-cr", "\(installDir)/VoiceCloneMemo.app"]
+            xattrTask.standardOutput = FileHandle.nullDevice
+            xattrTask.standardError = FileHandle.nullDevice
+            try? xattrTask.run()
+            xattrTask.waitUntilExit()
 
-            // Step 4: Clean up
-            try? FileManager.default.removeItem(atPath: tmpZip)
+            // Clean up
+            try? FileManager.default.removeItem(at: tmpZip)
 
             self.updateUI("Redémarrage...")
 
-            // Step 5: Relaunch
+            // Relaunch
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 let appURL = URL(fileURLWithPath: "\(installDir)/VoiceCloneMemo.app")
-                let config = NSWorkspace.OpenConfiguration()
-                config.createsNewApplicationInstance = true
-                NSWorkspace.shared.openApplication(at: appURL, configuration: config)
-                // Quit current instance
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+
+                // Use open command (most reliable way to relaunch)
+                let openTask = Process()
+                openTask.launchPath = "/usr/bin/open"
+                openTask.arguments = ["-n", appURL.path]
+                try? openTask.run()
+
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                     NSApp.terminate(nil)
                 }
             }
+        }
+
+        downloadTask.resume()
+    }
+
+    private func failUpdate(_ message: String) {
+        DispatchQueue.main.async { [weak self] in
+            self?.updateError = message
+            self?.updateStatus = ""
+            self?.isUpdating = false
         }
     }
 
@@ -116,22 +181,5 @@ class AutoUpdater: ObservableObject {
             if p1 < p2 { return false }
         }
         return false
-    }
-
-    private func shell(_ command: String) -> (status: Int32, output: String) {
-        let task = Process()
-        let pipe = Pipe()
-        task.launchPath = "/bin/bash"
-        task.arguments = ["-c", command]
-        task.standardOutput = pipe
-        task.standardError = pipe
-        do {
-            try task.run()
-            task.waitUntilExit()
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            return (task.terminationStatus, String(data: data, encoding: .utf8) ?? "")
-        } catch {
-            return (-1, "")
-        }
     }
 }

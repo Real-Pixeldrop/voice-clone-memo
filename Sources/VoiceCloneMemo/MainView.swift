@@ -552,11 +552,13 @@ struct MainView: View {
                         }
 
                         if autoUpdater.isUpdating {
-                            ProgressView()
-                                .scaleEffect(0.8)
-                            Text(autoUpdater.updateStatus)
-                                .font(.caption)
-                                .foregroundColor(.secondary)
+                            HStack(spacing: 8) {
+                                ProgressView()
+                                    .scaleEffect(0.7)
+                                Text(autoUpdater.updateStatus)
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
                         } else {
                             Button(action: { autoUpdater.performUpdate() }) {
                                 HStack {
@@ -568,11 +570,28 @@ struct MainView: View {
                             }
                             .buttonStyle(.borderedProminent)
                         }
+
+                        if let error = autoUpdater.updateError {
+                            HStack(spacing: 6) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .foregroundColor(.red)
+                                    .font(.caption)
+                                Text(error)
+                                    .font(.caption)
+                                    .foregroundColor(.red)
+                            }
+
+                            Button(action: { autoUpdater.performUpdate() }) {
+                                Text("Réessayer")
+                                    .font(.caption)
+                            }
+                            .buttonStyle(.bordered)
+                        }
                     } else {
                         HStack(spacing: 8) {
                             Image(systemName: "checkmark.circle.fill")
                                 .foregroundColor(.green)
-                            Text("À jour (v4.3.0)")
+                            Text("À jour (v\(autoUpdater.currentVersion))")
                                 .font(.system(size: 13))
                                 .foregroundColor(.secondary)
                         }
