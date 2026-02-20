@@ -594,6 +594,21 @@ struct MainView: View {
                             Text("À jour (v\(autoUpdater.currentVersion))")
                                 .font(.system(size: 13))
                                 .foregroundColor(.secondary)
+                            Spacer()
+                            Button(action: {
+                                autoUpdater.isChecking = true
+                                autoUpdater.checkForUpdates()
+                            }) {
+                                if autoUpdater.isChecking {
+                                    ProgressView()
+                                        .scaleEffect(0.6)
+                                } else {
+                                    Image(systemName: "arrow.clockwise")
+                                        .font(.caption)
+                                }
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(autoUpdater.isChecking)
                         }
                     }
                 }

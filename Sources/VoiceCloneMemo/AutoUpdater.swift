@@ -7,8 +7,9 @@ class AutoUpdater: ObservableObject {
     @Published var isUpdating = false
     @Published var updateStatus: String = ""
     @Published var updateError: String?
+    @Published var isChecking = false
 
-    let currentVersion = "4.4.0"
+    let currentVersion = "4.5.0"
     private let repoOwner = "Real-Pixeldrop"
     private let repoName = "voice-clone-memo"
 
@@ -37,6 +38,7 @@ class AutoUpdater: ObservableObject {
             DispatchQueue.main.async {
                 guard let self = self else { return }
                 self.latestVersion = remoteVersion
+                self.isChecking = false
                 if self.compareVersions(remoteVersion, isNewerThan: self.currentVersion) {
                     self.updateAvailable = true
                 }
