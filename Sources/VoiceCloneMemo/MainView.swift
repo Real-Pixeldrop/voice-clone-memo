@@ -241,15 +241,15 @@ struct MainView: View {
             } else {
                 ScrollView {
                     LazyVStack(spacing: 4) {
-                        ForEach(voiceManager.voiceProfiles) { profile in
+                        ForEach(Array(voiceManager.voiceProfiles.enumerated()), id: \.element.id) { _, profile in
                             HStack {
                                 Image(systemName: "person.circle")
                                     .font(.title3)
                                 VStack(alignment: .leading) {
                                     Text(profile.name)
                                         .font(.system(size: 13, weight: .medium))
-                                    if profile.elevenLabsId != nil {
-                                        Text("Clonée (ElevenLabs)")
+                                    if profile.providerVoiceId != nil {
+                                        Text("Clonée (\(profile.provider.rawValue))")
                                             .font(.caption)
                                             .foregroundColor(.green)
                                     } else {
@@ -316,6 +316,20 @@ struct MainView: View {
                 }
 
                 switch voiceManager.config.provider {
+                case .qwen:
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Clé API DashScope (Alibaba)")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        SecureField("sk-...", text: $voiceManager.config.qwenKey)
+                            .textFieldStyle(.roundedBorder)
+                        Link("Obtenir une clé (gratuit) →", destination: URL(string: "https://dashscope.console.aliyun.com/")!)
+                            .font(.caption)
+                        Text("500k tokens/mois gratuits. Clone en 10-20 sec d'audio.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+
                 case .elevenLabs:
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Clé API ElevenLabs")
