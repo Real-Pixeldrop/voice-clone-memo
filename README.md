@@ -1,77 +1,55 @@
-# VoiceCloneMemo 🎙️
+# Voice Clone Memo
 
-Clone your voice, type text, get audio memos in your voice. All from the menu bar.
+Clone ta voix, tape du texte, obtiens un audio avec TA voix. Pour les notes vocales sans parler.
 
-![macOS](https://img.shields.io/badge/macOS-13%2B-blue) ![Swift](https://img.shields.io/badge/Swift-5.9-orange) ![License](https://img.shields.io/badge/license-MIT-green)
+## Download
 
-## Features
+[Télécharger VoiceCloneMemo.zip](https://github.com/Real-Pixeldrop/voice-clone-memo/releases/latest/download/VoiceCloneMemo.zip)
 
-- 🎙️ Record your voice (10-20 sec) to create a voice profile
-- 📁 Or drop an existing audio file to clone any voice
-- ⌨️ Type text → get audio in your cloned voice
-- ▶️ Listen, copy, share, or reveal in Finder
-- 🔄 Multiple voice profiles
-- 🪶 Native Swift — 150 Ko
+1. Télécharge le zip
+2. Dézipe
+3. Double-clic sur VoiceCloneMemo
+4. Au premier lancement, l'app installe Qwen3-TTS automatiquement (~4 Go, 10-15 min)
+5. C'est prêt. Pour toujours. Gratuit. 100% local.
 
-## Install
+## Comment ça marche
 
-### Download (recommended)
-
-1. Download [VoiceCloneMemo-macOS.zip](https://github.com/Real-Pixeldrop/voice-clone-memo/releases/latest/download/VoiceCloneMemo-macOS.zip)
-2. Unzip
-3. Double-click `VoiceCloneMemo`
-4. Done — the 🎙️ icon appears in your menu bar
-
-### Terminal one-liner
-
-```bash
-curl -sL https://github.com/Real-Pixeldrop/voice-clone-memo/releases/latest/download/VoiceCloneMemo-macOS.zip -o /tmp/vcm.zip && sudo unzip -o /tmp/vcm.zip -d /usr/local/bin && VoiceCloneMemo &
-```
-
-### From source
-
-```bash
-git clone https://github.com/Real-Pixeldrop/voice-clone-memo.git
-cd voice-clone-memo
-swift build -c release
-.build/release/VoiceCloneMemo
-```
-
-## Setup
-
-1. Launch VoiceCloneMemo
-2. Click ⚙️ → choose your voice provider:
-   - **ElevenLabs** — voice cloning, ultra realistic (needs API key)
-   - **OpenAI TTS** — high quality voices, no cloning (needs API key)
-   - **System voice (macOS)** — free, offline, basic
-
-## Usage
-
-1. Go to **Voix** tab → record 10-20 sec of your voice (or import an audio file)
-2. Go to **Générer** tab → select your voice profile
-3. Type your text
-4. Click **Générer le mémo vocal**
-5. Listen, copy, or share
-
-## Voice Cloning Tips
-
-- **10-20 seconds** of clean audio for best results
-- Quiet environment, no background noise
-- Speak naturally, varied sentences
-- WAV format preferred for imports
+1. **Clone ta voix** : enregistre 10-20 secondes de ta voix (ou importe un audio/vidéo/YouTube)
+2. **Tape du texte** : écris ce que tu veux dire
+3. **Génère** : l'app crée un audio avec ta voix clonée
+4. **Partage** : écoute, copie ou partage le mémo vocal
 
 ## Providers
 
-| Provider | Clone | Quality | Cost |
-|----------|-------|---------|------|
-| ElevenLabs | Yes | Excellent | Pay per use |
-| OpenAI TTS | No | Very good | Pay per use |
-| System (macOS) | No | Basic | Free |
+| Provider | Prix | Clone vocal | Offline |
+|----------|------|-------------|---------|
+| **Qwen3 Local** | Gratuit | Oui | Oui |
+| Fish Audio | Gratuit (1h/mois) | Oui | Non |
+| Qwen3 Cloud | Gratuit (500k tokens/mois) | Oui | Non |
+| ElevenLabs | Payant | Oui | Non |
+| OpenAI TTS | Payant | Non | Non |
+| Voix système | Gratuit | Non | Oui |
 
-## Privacy
+Qwen3 Local est le défaut. Tout tourne sur ton Mac, rien ne passe par le cloud.
 
-All config and voice data stored locally in `~/Library/Application Support/VoiceCloneMemo/`. Audio files never leave your machine unless you share them.
+## From source
 
-## License
+```bash
+git clone https://github.com/Real-Pixeldrop/voice-clone-memo.git
+cd voice-clone-memo/VoiceCloneMemo
+swift build -c release
+cp -r .build/release/VoiceCloneMemo.app /Applications/ 2>/dev/null || \
+  cp .build/release/VoiceCloneMemo /Applications/
+```
 
-MIT
+## One-liner install
+
+```bash
+curl -sL https://github.com/Real-Pixeldrop/voice-clone-memo/releases/latest/download/VoiceCloneMemo.zip -o /tmp/vcm.zip && unzip -o /tmp/vcm.zip -d /Applications/ && open /Applications/VoiceCloneMemo.app
+```
+
+## Requis
+
+- macOS 13+
+- 8 Go RAM minimum (pour Qwen3 local)
+- ~5 Go d'espace disque (modèle + dépendances)

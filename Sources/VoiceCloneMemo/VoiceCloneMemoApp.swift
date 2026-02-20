@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import Combine
 
 @main
 struct VoiceCloneMemoApp: App {
@@ -16,6 +17,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var statusItem: NSStatusItem!
     var popover: NSPopover!
     var voiceManager = VoiceManager()
+    var setupManager = SetupManager()
     var localServer: Process?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -32,10 +34,30 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         popover = NSPopover()
         popover.contentSize = NSSize(width: 400, height: 500)
         popover.behavior = .transient
-        popover.contentViewController = NSHostingController(rootView: MainView(voiceManager: voiceManager))
+        updatePopoverContent()
 
-        // Auto-start local server if installed
-        startLocalServerIfNeeded()
+        // Watch for setup completion to switch views
+        setupManager.$isComplete.receive(on: DispatchQueue.main).sink { [weak self] complete in
+            guard let self = self else { return }
+            if complete {
+                self.updatePopoverContent()
+                self.startLocalServerIfNeeded()
+            }
+        }.store(in: &cancellables)
+    }
+
+    private var cancellables = Set<AnyCancellable>()
+
+    func updatePopoverContent() {
+        if setupManager.isSetupNeeded {
+            popover.contentViewController = NSHostingController(
+                rootView: SetupView(setupManager: setupManager)
+            )
+        } else {
+            popover.contentViewController = NSHostingController(
+                rootView: MainView(voiceManager: voiceManager)
+            )
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {

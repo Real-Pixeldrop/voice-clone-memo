@@ -17,9 +17,9 @@ app = Flask(__name__)
 # Globals
 model = None
 processor = None
-MODEL_PATH = os.path.expanduser("~/qwen3-tts/model-1.7b")
-VOICES_DIR = os.path.expanduser("~/qwen3-tts/voices")
-OUTPUT_DIR = os.path.expanduser("~/qwen3-tts/output")
+MODEL_PATH = os.path.expanduser("~/.voiceclonememo/model")
+VOICES_DIR = os.path.expanduser("~/.voiceclonememo/voices")
+OUTPUT_DIR = os.path.expanduser("~/.voiceclonememo/output")
 os.makedirs(VOICES_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
@@ -28,7 +28,7 @@ def load_model():
     import torch
     from transformers import AutoModelForCausalLM, AutoProcessor
 
-    print("Chargement du modèle Qwen3-TTS 1.7B...")
+    print("Chargement du modele Qwen3-TTS 1.7B...")
     device = "mps" if torch.backends.mps.is_available() else "cpu"
     print(f"Device: {device}")
 
@@ -40,7 +40,7 @@ def load_model():
         device_map=device,
         attn_implementation="sdpa"
     )
-    print("✅ Modèle chargé !")
+    print("Modele charge !")
 
 @app.route("/health", methods=["GET"])
 def health():
@@ -62,7 +62,6 @@ def clone_voice():
     audio_path = os.path.join(voice_dir, "reference.wav")
     audio_file.save(audio_path)
 
-    # Save metadata
     meta = {"name": name, "voice_id": voice_id, "audio": audio_path}
     with open(os.path.join(voice_dir, "meta.json"), "w") as f:
         json.dump(meta, f)
@@ -83,10 +82,8 @@ def text_to_speech():
         return jsonify({"error": "No text provided"}), 400
 
     try:
-        # Prepare inputs
         if voice_id and os.path.exists(os.path.join(VOICES_DIR, voice_id, "reference.wav")):
             ref_audio = os.path.join(VOICES_DIR, voice_id, "reference.wav")
-            # Voice cloning with reference
             inputs = processor(
                 text=text,
                 audio=ref_audio,
@@ -106,10 +103,8 @@ def text_to_speech():
         with torch.no_grad():
             output = model.generate(**inputs, max_new_tokens=2048)
 
-        # Decode audio
         audio_array = processor.decode(output[0], return_tensors=False)
 
-        # Save to file
         output_path = os.path.join(OUTPUT_DIR, f"memo_{int(time.time())}.wav")
         sf.write(output_path, audio_array, 24000)
 
@@ -131,5 +126,5 @@ def list_voices():
 
 if __name__ == "__main__":
     load_model()
-    print("🎙️ Qwen3-TTS serveur local sur http://localhost:5123")
+    print("Qwen3-TTS serveur local sur http://localhost:5123")
     app.run(host="0.0.0.0", port=5123, debug=False)
