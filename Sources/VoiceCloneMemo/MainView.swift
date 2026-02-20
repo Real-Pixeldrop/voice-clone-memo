@@ -730,6 +730,7 @@ struct MainView: View {
                                 Text("0.6B (léger)").tag("0.6b")
                                 Text("1.7B (qualité)").tag("1.7b")
                             }
+                            .pickerStyle(.segmented)
                             .labelsHidden()
 
                             // Info text based on selection
@@ -799,61 +800,6 @@ struct MainView: View {
                                 Text(voiceManager.localServerRunning ? "Serveur actif, prêt à générer" : "Serveur en veille (se lance automatiquement)")
                                     .font(.caption2)
                                     .foregroundColor(.secondary)
-                            }
-
-                            // Model size picker
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("Modèle")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                                Picker("Modèle", selection: $voiceManager.config.localModelSize) {
-                                    Text("Auto (recommandé)").tag("auto")
-                                    Text("0.6B (léger)").tag("0.6b")
-                                    Text("1.7B (qualité)").tag("1.7b")
-                                }
-                                .pickerStyle(.segmented)
-                                .labelsHidden()
-                                .onChange(of: voiceManager.config.localModelSize) { newValue in
-                                    if pendingModelSize.isEmpty {
-                                        pendingModelSize = newValue
-                                    }
-                                    if newValue != pendingModelSize {
-                                        pendingModelSize = newValue
-                                    }
-                                    modelSizeChanged = true
-                                }
-
-                                // Info text based on selection
-                                Group {
-                                    switch voiceManager.config.localModelSize {
-                                    case "0.6b":
-                                        Text("Plus rapide, moins de RAM. Qualité correcte.")
-                                    case "1.7b":
-                                        Text("Meilleure qualité. Nécessite 16 Go+ de RAM.")
-                                    default:
-                                        Text("Choix automatique selon votre RAM")
-                                    }
-                                }
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
-                            }
-
-                            // Restart server button (shown when model changed)
-                            if modelSizeChanged && voiceManager.localServerRunning {
-                                Button(action: {
-                                    voiceManager.saveConfig()
-                                    voiceManager.restartLocalServer()
-                                    modelSizeChanged = false
-                                }) {
-                                    HStack {
-                                        Image(systemName: "arrow.triangle.2.circlepath")
-                                        Text("Redémarrer le serveur")
-                                    }
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 6)
-                                }
-                                .buttonStyle(.borderedProminent)
-                                .tint(.orange)
                             }
                         }
                     }
