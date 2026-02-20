@@ -1,5 +1,7 @@
 import Foundation
 import AppKit
+import AVFoundation
+import UniformTypeIdentifiers
 
 enum TTSProvider: String, Codable, CaseIterable {
     case qwen = "Qwen3 (Alibaba)"
@@ -156,14 +158,82 @@ class VoiceManager: ObservableObject {
         saveProfiles()
     }
 
-    func importAudioFile() {
+    func importFile() {
         let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.audio, .wav, .mp3, .mpeg4Audio]
+        panel.allowedContentTypes = [.audio, .wav, .mp3, .mpeg4Audio, .movie, .mpeg4Movie, .quickTimeMovie, .avi, .video]
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
+        panel.message = "Sélectionne un fichier audio ou vidéo"
 
         if panel.runModal() == .OK, let url = panel.url {
-            addVoiceFromFile(name: url.deletingPathExtension().lastPathComponent, sourceURL: url)
+            let videoExtensions = ["mp4", "mov", "avi", "mkv", "m4v", "webm"]
+            if videoExtensions.contains(url.pathExtension.lowercased()) {
+                statusMessage = "Extraction audio..."
+                extractAudioFromVideo(url: url) { [weak self] audioURL in
+                    DispatchQueue.main.async {
+                        if let audioURL = audioURL {
+                            self?.addVoiceFromFile(name: url.deletingPathExtension().lastPathComponent, sourceURL: audioURL)
+                        } else {
+                            self?.statusMessage = "Erreur extraction audio"
+                        }
+                    }
+                }
+            } else {
+                addVoiceFromFile(name: url.deletingPathExtension().lastPathComponent, sourceURL: url)
+            }
+        }
+    }
+
+    private func extractAudioFromVideo(url: URL, completion: @escaping (URL?) -> Void) {
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let tempAudio = appSupport.appendingPathComponent("VoiceCloneMemo/temp_extracted.wav")
+
+        // Try ffmpeg first (better quality)
+        DispatchQueue.global().async {
+            let ffmpegPaths = ["/usr/local/bin/ffmpeg", "/opt/homebrew/bin/ffmpeg"]
+            let ffmpegPath = ffmpegPaths.first { FileManager.default.fileExists(atPath: $0) }
+
+            if let ffmpegPath = ffmpegPath {
+                try? FileManager.default.removeItem(at: tempAudio)
+                let task = Process()
+                task.launchPath = ffmpegPath
+                task.arguments = ["-i", url.path, "-vn", "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", "-y", tempAudio.path]
+                task.standardOutput = FileHandle.nullDevice
+                task.standardError = FileHandle.nullDevice
+                try? task.run()
+                task.waitUntilExit()
+
+                if task.terminationStatus == 0 && FileManager.default.fileExists(atPath: tempAudio.path) {
+                    completion(tempAudio)
+                    return
+                }
+            }
+
+            // Fallback: AVFoundation
+            self.extractWithAVFoundation(url: url, output: tempAudio, completion: completion)
+        }
+    }
+
+    private func extractWithAVFoundation(url: URL, output: URL, completion: @escaping (URL?) -> Void) {
+        let asset = AVURLAsset(url: url)
+
+        guard let exportSession = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetAppleM4A) else {
+            completion(nil)
+            return
+        }
+
+        let m4aOutput = output.deletingPathExtension().appendingPathExtension("m4a")
+        try? FileManager.default.removeItem(at: m4aOutput)
+
+        exportSession.outputURL = m4aOutput
+        exportSession.outputFileType = .m4a
+
+        exportSession.exportAsynchronously {
+            if exportSession.status == .completed {
+                completion(m4aOutput)
+            } else {
+                completion(nil)
+            }
         }
     }
 

@@ -208,8 +208,8 @@ struct MainView: View {
 
                     Spacer()
 
-                    // Import button
-                    Button(action: { voiceManager.importAudioFile() }) {
+                    // Import button (audio or video)
+                    Button(action: { voiceManager.importFile() }) {
                         HStack {
                             Image(systemName: "square.and.arrow.down")
                             Text("Importer")
@@ -233,7 +233,7 @@ struct MainView: View {
                         .foregroundColor(.secondary)
                     Text("Aucune voix enregistrée")
                         .foregroundColor(.secondary)
-                    Text("Enregistre ta voix ou importe un audio")
+                    Text("Enregistre ta voix ou importe un audio/vidéo")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
