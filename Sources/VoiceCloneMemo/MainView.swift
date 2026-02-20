@@ -377,6 +377,20 @@ struct MainView: View {
                 }
 
                 switch voiceManager.config.provider {
+                case .fish:
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Clé API Fish Audio")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        SecureField("fm-...", text: $voiceManager.config.fishKey)
+                            .textFieldStyle(.roundedBorder)
+                        Link("Créer un compte (gratuit) →", destination: URL(string: "https://fish.audio")!)
+                            .font(.caption)
+                        Text("1h de génération gratuite par mois. Clonage vocal inclus.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+
                 case .qwen:
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Clé API DashScope (Alibaba)")

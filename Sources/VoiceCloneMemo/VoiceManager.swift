@@ -4,6 +4,7 @@ import AVFoundation
 import UniformTypeIdentifiers
 
 enum TTSProvider: String, Codable, CaseIterable {
+    case fish = "Fish Audio"
     case qwen = "Qwen3 (Alibaba)"
     case elevenLabs = "ElevenLabs"
     case openai = "OpenAI TTS"
@@ -11,13 +12,14 @@ enum TTSProvider: String, Codable, CaseIterable {
 
     var needsApiKey: Bool {
         switch self {
-        case .qwen, .elevenLabs, .openai: return true
+        case .fish, .qwen, .elevenLabs, .openai: return true
         case .system: return false
         }
     }
 
     var icon: String {
         switch self {
+        case .fish: return "fish"
         case .qwen: return "brain"
         case .elevenLabs: return "waveform"
         case .openai: return "sparkles"
@@ -27,7 +29,8 @@ enum TTSProvider: String, Codable, CaseIterable {
 
     var description: String {
         switch self {
-        case .qwen: return "Clonage vocal en 3 sec, gratuit 500k tokens/mois"
+        case .fish: return "Clonage vocal gratuit (1h/mois), ultra réaliste"
+        case .qwen: return "Clonage vocal, gratuit 500k tokens/mois"
         case .elevenLabs: return "Clonage vocal, très réaliste"
         case .openai: return "Voix haute qualité, pas de clone"
         case .system: return "Gratuit, hors-ligne, basique"
@@ -37,6 +40,8 @@ enum TTSProvider: String, Codable, CaseIterable {
 
 struct VoiceConfig: Codable {
     var provider: TTSProvider
+    var fishKey: String
+    var fishVoiceId: String
     var qwenKey: String
     var qwenVoiceId: String
     var elevenLabsKey: String
@@ -46,7 +51,9 @@ struct VoiceConfig: Codable {
     var systemVoice: String
 
     init() {
-        self.provider = .qwen
+        self.provider = .fish
+        self.fishKey = ""
+        self.fishVoiceId = ""
         self.qwenKey = ""
         self.qwenVoiceId = ""
         self.elevenLabsKey = ""
@@ -124,6 +131,16 @@ class VoiceManager: ObservableObject {
         statusMessage = "Clonage en cours..."
 
         switch config.provider {
+        case .fish:
+            cloneVoiceFish(name: name, audioURL: destURL) { [weak self] voiceId in
+                DispatchQueue.main.async {
+                    let profile = VoiceProfile(name: name, audioFile: destURL.path, providerVoiceId: voiceId, provider: .fish)
+                    self?.voiceProfiles.append(profile)
+                    self?.saveProfiles()
+                    self?.isCloning = false
+                    self?.statusMessage = voiceId != nil ? "Voix clonée !" : "Voix sauvegardée (clonage échoué)"
+                }
+            }
         case .qwen:
             cloneVoiceQwen(name: name, audioURL: destURL) { [weak self] voiceId in
                 DispatchQueue.main.async {
@@ -372,6 +389,8 @@ class VoiceManager: ObservableObject {
         statusMessage = "Génération..."
 
         switch config.provider {
+        case .fish:
+            generateFish(text: text, voiceId: profile?.providerVoiceId ?? config.fishVoiceId, completion: completion)
         case .qwen:
             generateQwen(text: text, voiceId: profile?.providerVoiceId ?? config.qwenVoiceId, completion: completion)
         case .elevenLabs:
@@ -381,6 +400,99 @@ class VoiceManager: ObservableObject {
         case .system:
             generateSystem(text: text, voice: config.systemVoice, completion: completion)
         }
+    }
+
+    // MARK: - Fish Audio
+
+    private func cloneVoiceFish(name: String, audioURL: URL, completion: @escaping (String?) -> Void) {
+        guard let url = URL(string: "https://api.fish.audio/model") else {
+            completion(nil)
+            return
+        }
+
+        guard let audioData = try? Data(contentsOf: audioURL) else {
+            completion(nil)
+            return
+        }
+
+        let boundary = UUID().uuidString
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(config.fishKey)", forHTTPHeaderField: "Authorization")
+
+        var body = Data()
+        // Title
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"title\"\r\n\r\n".data(using: .utf8)!)
+        body.append("\(name)\r\n".data(using: .utf8)!)
+
+        // Visibility
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"visibility\"\r\n\r\n".data(using: .utf8)!)
+        body.append("private\r\n".data(using: .utf8)!)
+
+        // Audio file
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"voices\"; filename=\"voice.wav\"\r\n".data(using: .utf8)!)
+        body.append("Content-Type: audio/wav\r\n\r\n".data(using: .utf8)!)
+        body.append(audioData)
+        body.append("\r\n".data(using: .utf8)!)
+
+        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+        request.httpBody = body
+
+        URLSession.shared.dataTask(with: request) { data, _, error in
+            guard let data = data, error == nil,
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let modelId = json["_id"] as? String else {
+                completion(nil)
+                return
+            }
+            completion(modelId)
+        }.resume()
+    }
+
+    private func generateFish(text: String, voiceId: String, completion: @escaping (URL?) -> Void) {
+        guard let url = URL(string: "https://api.fish.audio/v1/tts") else {
+            DispatchQueue.main.async { self.isGenerating = false }
+            completion(nil)
+            return
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(config.fishKey)", forHTTPHeaderField: "Authorization")
+
+        var bodyDict: [String: Any] = [
+            "text": text,
+            "format": "mp3"
+        ]
+        if !voiceId.isEmpty {
+            bodyDict["reference_id"] = voiceId
+        }
+        request.httpBody = try? JSONSerialization.data(withJSONObject: bodyDict)
+
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+            DispatchQueue.main.async { self?.isGenerating = false }
+            guard let data = data, error == nil,
+                  let httpResponse = response as? HTTPURLResponse,
+                  httpResponse.statusCode == 200 else {
+                DispatchQueue.main.async { self?.statusMessage = "Erreur Fish Audio" }
+                completion(nil)
+                return
+            }
+            let outputURL = self?.outputDir.appendingPathComponent("memo_\(Int(Date().timeIntervalSince1970)).mp3")
+            if let outputURL = outputURL {
+                try? data.write(to: outputURL)
+                DispatchQueue.main.async {
+                    self?.lastGeneratedURL = outputURL
+                    self?.statusMessage = "Mémo généré !"
+                }
+                completion(outputURL)
+            }
+        }.resume()
     }
 
     // MARK: - Qwen3-TTS-VC
@@ -656,6 +768,7 @@ class VoiceManager: ObservableObject {
 
     var isConfigured: Bool {
         switch config.provider {
+        case .fish: return !config.fishKey.isEmpty
         case .qwen: return !config.qwenKey.isEmpty
         case .elevenLabs: return !config.elevenLabsKey.isEmpty
         case .openai: return !config.openaiKey.isEmpty
