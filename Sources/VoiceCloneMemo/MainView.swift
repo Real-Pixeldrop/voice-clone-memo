@@ -9,6 +9,11 @@ struct MainView: View {
     @State private var showSettings = false
     @State private var newVoiceName = ""
     @State private var showNameInput = false
+    @State private var showYouTube = false
+    @State private var youtubeURL = ""
+    @State private var ytStartTime = ""
+    @State private var ytEndTime = ""
+    @State private var ytVoiceName = ""
 
     var body: some View {
         VStack(spacing: 0) {
@@ -212,7 +217,17 @@ struct MainView: View {
                     Button(action: { voiceManager.importFile() }) {
                         HStack {
                             Image(systemName: "square.and.arrow.down")
-                            Text("Importer")
+                            Text("Fichier")
+                        }
+                        .font(.caption)
+                    }
+                    .buttonStyle(.bordered)
+
+                    // YouTube button
+                    Button(action: { showYouTube.toggle() }) {
+                        HStack {
+                            Image(systemName: "play.rectangle")
+                            Text("YouTube")
                         }
                         .font(.caption)
                     }
@@ -221,6 +236,52 @@ struct MainView: View {
                 .padding(.horizontal)
             }
             .padding(.top, 8)
+
+            // YouTube import
+            if showYouTube {
+                VStack(spacing: 6) {
+                    TextField("Lien YouTube", text: $youtubeURL)
+                        .textFieldStyle(.roundedBorder)
+                    HStack(spacing: 8) {
+                        TextField("Début (1:10)", text: $ytStartTime)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 80)
+                        TextField("Fin (1:40)", text: $ytEndTime)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 80)
+                        TextField("Nom voix", text: $ytVoiceName)
+                            .textFieldStyle(.roundedBorder)
+                    }
+                    Button(action: {
+                        voiceManager.importFromYouTube(
+                            urlString: youtubeURL,
+                            startTime: ytStartTime,
+                            endTime: ytEndTime,
+                            name: ytVoiceName
+                        )
+                        showYouTube = false
+                        youtubeURL = ""
+                        ytStartTime = ""
+                        ytEndTime = ""
+                        ytVoiceName = ""
+                    }) {
+                        Text("Cloner depuis YouTube")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(youtubeURL.isEmpty)
+                }
+                .padding(.horizontal)
+                .padding(.vertical, 4)
+            }
+
+            // Status
+            if !voiceManager.statusMessage.isEmpty {
+                Text(voiceManager.statusMessage)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal)
+            }
 
             Divider()
 

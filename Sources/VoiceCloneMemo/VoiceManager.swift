@@ -214,6 +214,134 @@ class VoiceManager: ObservableObject {
         }
     }
 
+    // MARK: - YouTube Import
+
+    func importFromYouTube(urlString: String, startTime: String, endTime: String, name: String) {
+        isCloning = true
+        statusMessage = "Téléchargement YouTube..."
+
+        DispatchQueue.global().async { [weak self] in
+            guard let self = self else { return }
+
+            let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+            let tempDir = appSupport.appendingPathComponent("VoiceCloneMemo")
+            let tempFull = tempDir.appendingPathComponent("yt_full.wav")
+            let tempClip = tempDir.appendingPathComponent("yt_clip.wav")
+
+            // Find yt-dlp
+            let ytdlpPaths = ["/usr/local/bin/yt-dlp", "/opt/homebrew/bin/yt-dlp"]
+            guard let ytdlpPath = ytdlpPaths.first(where: { FileManager.default.fileExists(atPath: $0) }) else {
+                DispatchQueue.main.async {
+                    self.isCloning = false
+                    self.statusMessage = "yt-dlp non trouvé. Installe avec : brew install yt-dlp"
+                }
+                return
+            }
+
+            // Find ffmpeg
+            let ffmpegPaths = ["/usr/local/bin/ffmpeg", "/opt/homebrew/bin/ffmpeg"]
+            guard let ffmpegPath = ffmpegPaths.first(where: { FileManager.default.fileExists(atPath: $0) }) else {
+                DispatchQueue.main.async {
+                    self.isCloning = false
+                    self.statusMessage = "ffmpeg non trouvé. Installe avec : brew install ffmpeg"
+                }
+                return
+            }
+
+            // Step 1: Download audio from YouTube
+            try? FileManager.default.removeItem(at: tempFull)
+            let dlTask = Process()
+            dlTask.launchPath = ytdlpPath
+            dlTask.arguments = ["-x", "--audio-format", "wav", "-o", tempFull.path, urlString]
+            dlTask.standardOutput = FileHandle.nullDevice
+            dlTask.standardError = FileHandle.nullDevice
+            try? dlTask.run()
+            dlTask.waitUntilExit()
+
+            // yt-dlp might add extension, find the file
+            var actualFile = tempFull
+            if !FileManager.default.fileExists(atPath: tempFull.path) {
+                // Check for yt_full.wav.wav or similar
+                let contents = (try? FileManager.default.contentsOfDirectory(at: tempDir, includingPropertiesForKeys: nil)) ?? []
+                if let found = contents.first(where: { $0.lastPathComponent.hasPrefix("yt_full") }) {
+                    actualFile = found
+                } else {
+                    DispatchQueue.main.async {
+                        self.isCloning = false
+                        self.statusMessage = "Erreur téléchargement YouTube"
+                    }
+                    return
+                }
+            }
+
+            DispatchQueue.main.async { self.statusMessage = "Extraction segment..." }
+
+            // Step 2: Cut the segment with ffmpeg
+            let startSec = self.parseTimestamp(startTime)
+            let endSec = self.parseTimestamp(endTime)
+            let duration = endSec - startSec
+
+            guard duration > 0 else {
+                // No timestamps, use full file
+                DispatchQueue.main.async {
+                    self.addVoiceFromFile(name: name.isEmpty ? "YouTube Voice" : name, sourceURL: actualFile)
+                    self.isCloning = false
+                }
+                return
+            }
+
+            try? FileManager.default.removeItem(at: tempClip)
+            let cutTask = Process()
+            cutTask.launchPath = ffmpegPath
+            cutTask.arguments = [
+                "-i", actualFile.path,
+                "-ss", String(startSec),
+                "-t", String(duration),
+                "-acodec", "pcm_s16le",
+                "-ar", "16000",
+                "-ac", "1",
+                "-y", tempClip.path
+            ]
+            cutTask.standardOutput = FileHandle.nullDevice
+            cutTask.standardError = FileHandle.nullDevice
+            try? cutTask.run()
+            cutTask.waitUntilExit()
+
+            if cutTask.terminationStatus == 0 && FileManager.default.fileExists(atPath: tempClip.path) {
+                DispatchQueue.main.async {
+                    self.addVoiceFromFile(name: name.isEmpty ? "YouTube Voice" : name, sourceURL: tempClip)
+                }
+            } else {
+                DispatchQueue.main.async {
+                    self.isCloning = false
+                    self.statusMessage = "Erreur extraction segment"
+                }
+            }
+        }
+    }
+
+    func parseTimestamp(_ ts: String) -> Double {
+        let trimmed = ts.trimmingCharacters(in: .whitespaces)
+        if trimmed.isEmpty { return 0 }
+
+        let parts = trimmed.components(separatedBy: ":")
+        switch parts.count {
+        case 1:
+            return Double(parts[0]) ?? 0
+        case 2:
+            let min = Double(parts[0]) ?? 0
+            let sec = Double(parts[1]) ?? 0
+            return min * 60 + sec
+        case 3:
+            let hr = Double(parts[0]) ?? 0
+            let min = Double(parts[1]) ?? 0
+            let sec = Double(parts[2]) ?? 0
+            return hr * 3600 + min * 60 + sec
+        default:
+            return 0
+        }
+    }
+
     private func extractWithAVFoundation(url: URL, output: URL, completion: @escaping (URL?) -> Void) {
         let asset = AVURLAsset(url: url)
 
