@@ -419,9 +419,13 @@ def text_to_speech():
     data = request.get_json()
     text = data.get("text", "")
     voice_id = data.get("voice_id", "")
+    instruction = data.get("instruction", "")
 
     if not text:
         return jsonify({"error": "No text provided"}), 400
+
+    # Prepend instruction to text if provided (emotion/tone control)
+    effective_text = f"[{instruction}] {text}" if instruction else text
 
     try:
         if voice_id and os.path.exists(os.path.join(VOICES_DIR, voice_id, "reference.wav")):
@@ -438,7 +442,7 @@ def text_to_speech():
                         ref_text = None
 
             proc_kwargs = {
-                "text": text,
+                "text": effective_text,
                 "audio": ref_audio,
                 "return_tensors": "pt",
                 "trust_remote_code": True
@@ -449,7 +453,7 @@ def text_to_speech():
             inputs = processor(**proc_kwargs)
         else:
             inputs = processor(
-                text=text,
+                text=effective_text,
                 return_tensors="pt",
                 trust_remote_code=True
             )

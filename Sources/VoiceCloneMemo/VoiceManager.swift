@@ -768,7 +768,7 @@ class VoiceManager: ObservableObject {
 
     // MARK: - Generate Speech
 
-    func generateSpeech(text: String, profile: VoiceProfile?, completion: @escaping (URL?) -> Void) {
+    func generateSpeech(text: String, profile: VoiceProfile?, tone: TTSTone = .normal, completion: @escaping (URL?) -> Void) {
         isGenerating = true
         lastError = nil
         statusMessage = "Génération..."
@@ -778,7 +778,7 @@ class VoiceManager: ObservableObject {
             ensureLocalServerRunning { [weak self] serverReady in
                 guard let self = self else { return }
                 if serverReady {
-                    self.generateLocal(text: text, voiceId: profile?.providerVoiceId ?? "", completion: completion)
+                    self.generateLocal(text: text, voiceId: profile?.providerVoiceId ?? "", tone: tone, completion: completion)
                 } else {
                     DispatchQueue.main.async {
                         self.isGenerating = false
@@ -851,7 +851,7 @@ class VoiceManager: ObservableObject {
         }.resume()
     }
 
-    private func generateLocal(text: String, voiceId: String, completion: @escaping (URL?) -> Void) {
+    private func generateLocal(text: String, voiceId: String, tone: TTSTone = .normal, completion: @escaping (URL?) -> Void) {
         guard let url = URL(string: "http://localhost:5123/v1/tts") else {
             DispatchQueue.main.async { self.isGenerating = false }
             completion(nil)
@@ -866,6 +866,9 @@ class VoiceManager: ObservableObject {
         var bodyDict: [String: Any] = ["text": text]
         if !voiceId.isEmpty {
             bodyDict["voice_id"] = voiceId
+        }
+        if let instruction = tone.instruction {
+            bodyDict["instruction"] = instruction
         }
         request.httpBody = try? JSONSerialization.data(withJSONObject: bodyDict)
 

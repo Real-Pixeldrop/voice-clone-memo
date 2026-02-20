@@ -1,5 +1,31 @@
 import SwiftUI
 import AppKit
+import NaturalLanguage
+
+enum TTSTone: String, CaseIterable {
+    case normal = "Normal"
+    case joyful = "Joyeux"
+    case serious = "Sérieux"
+    case whispered = "Chuchoté"
+
+    var instruction: String? {
+        switch self {
+        case .normal: return nil
+        case .joyful: return "Speak with a joyful, happy and enthusiastic tone."
+        case .serious: return "Speak with a serious, formal and composed tone."
+        case .whispered: return "Speak in a soft whisper, very quiet and intimate."
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .normal: return "waveform"
+        case .joyful: return "face.smiling"
+        case .serious: return "briefcase"
+        case .whispered: return "ear"
+        }
+    }
+}
 
 struct MainView: View {
     @ObservedObject var voiceManager: VoiceManager
@@ -8,6 +34,7 @@ struct MainView: View {
     @State private var currentTab = 0
     @State private var text = ""
     @State private var selectedProfile: VoiceProfile?
+    @State private var selectedTone: TTSTone = .normal
     @State private var showSettings = false
     @State private var newVoiceName = ""
     @State private var newVoiceTranscript = ""
@@ -17,6 +44,44 @@ struct MainView: View {
     @State private var ytStartTime = ""
     @State private var ytEndTime = ""
     @State private var ytVoiceName = ""
+
+    // MARK: - Text Stats (computed)
+
+    private var charCount: Int { text.count }
+
+    private var wordCount: Int {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return 0 }
+        return trimmed.components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+            .count
+    }
+
+    private var estimatedAudioSeconds: Int {
+        guard wordCount > 0 else { return 0 }
+        return max(1, Int(round(Double(wordCount) / 150.0 * 60.0)))
+    }
+
+    private var detectedLanguage: (code: String, label: String)? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count >= 10 else { return nil }
+        let recognizer = NLLanguageRecognizer()
+        recognizer.processString(trimmed)
+        guard let lang = recognizer.dominantLanguage else { return nil }
+        let hypotheses = recognizer.languageHypotheses(withMaximum: 1)
+        guard let confidence = hypotheses[lang], confidence > 0.5 else { return nil }
+        let labels: [NLLanguage: String] = [
+            .french: "FR", .english: "EN", .spanish: "ES", .german: "DE",
+            .italian: "IT", .portuguese: "PT", .dutch: "NL", .russian: "RU",
+            .japanese: "JA", .simplifiedChinese: "ZH", .traditionalChinese: "ZH", .korean: "KO", .arabic: "AR",
+            .turkish: "TR", .polish: "PL", .swedish: "SV", .danish: "DA",
+            .norwegian: "NO", .finnish: "FI", .czech: "CS", .romanian: "RO",
+            .hungarian: "HU", .thai: "TH", .vietnamese: "VI", .indonesian: "ID",
+            .hindi: "HI",
+        ]
+        let label = labels[lang] ?? lang.rawValue.uppercased().prefix(2).description
+        return (lang.rawValue, label)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -89,12 +154,56 @@ struct MainView: View {
                 .padding(.horizontal)
             }
 
+            // Tone selector
+            HStack(spacing: 6) {
+                Text("Ton :")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                Picker("", selection: $selectedTone) {
+                    ForEach(TTSTone.allCases, id: \.self) { tone in
+                        Label(tone.rawValue, systemImage: tone.icon).tag(tone)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+            }
+            .padding(.horizontal)
+
             // Text input
             TextEditor(text: $text)
                 .font(.body)
                 .padding(4)
                 .background(RoundedRectangle(cornerRadius: 8).stroke(Color.gray.opacity(0.3)))
                 .padding(.horizontal)
+
+            // Text stats
+            if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                HStack(spacing: 6) {
+                    Text("\(charCount) caractères · \(wordCount) mots")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    Text("·")
+                        .font(.caption)
+                        .foregroundColor(.secondary.opacity(0.5))
+
+                    Text("~\(estimatedAudioSeconds) sec d'audio")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    if let lang = detectedLanguage {
+                        Text("·")
+                            .font(.caption)
+                            .foregroundColor(.secondary.opacity(0.5))
+                        Text("\(lang.label) détecté")
+                            .font(.caption)
+                            .foregroundColor(.accentColor.opacity(0.8))
+                    }
+
+                    Spacer()
+                }
+                .padding(.horizontal, 20)
+            }
 
             if !voiceManager.isConfigured {
                 HStack {
@@ -815,7 +924,7 @@ struct MainView: View {
     // MARK: - Actions
 
     func generate() {
-        voiceManager.generateSpeech(text: text, profile: selectedProfile) { url in
+        voiceManager.generateSpeech(text: text, profile: selectedProfile, tone: selectedTone) { url in
             // Notification is sent from AppDelegate via observation
             // Audio auto-play is handled by onChange(of: voiceManager.lastGeneratedURL)
         }
