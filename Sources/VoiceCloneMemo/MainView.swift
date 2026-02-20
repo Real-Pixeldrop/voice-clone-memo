@@ -635,17 +635,31 @@ struct MainView: View {
                             HStack {
                                 Image(systemName: "person.circle")
                                     .font(.title3)
-                                VStack(alignment: .leading) {
+                                VStack(alignment: .leading, spacing: 2) {
                                     Text(profile.name)
                                         .font(.system(size: 13, weight: .medium))
-                                    if profile.providerVoiceId != nil {
-                                        Text("Clonée (\(profile.provider.rawValue))")
-                                            .font(.caption)
-                                            .foregroundColor(.green)
-                                    } else {
-                                        Text("Audio de référence")
-                                            .font(.caption)
-                                            .foregroundColor(.secondary)
+                                    HStack(spacing: 4) {
+                                        if let source = profile.source {
+                                            HStack(spacing: 2) {
+                                                Image(systemName: source.icon)
+                                                Text(source.rawValue)
+                                            }
+                                            .font(.system(size: 9, weight: .semibold))
+                                            .padding(.horizontal, 5)
+                                            .padding(.vertical, 2)
+                                            .background(sourceColor(source).opacity(0.15))
+                                            .foregroundColor(sourceColor(source))
+                                            .clipShape(Capsule())
+                                        }
+                                        if profile.providerVoiceId != nil {
+                                            Text(profile.provider.rawValue)
+                                                .font(.system(size: 9))
+                                                .foregroundColor(.green)
+                                        } else {
+                                            Text("Audio de référence")
+                                                .font(.system(size: 9))
+                                                .foregroundColor(.secondary)
+                                        }
                                     }
                                 }
                                 Spacer()
@@ -666,6 +680,15 @@ struct MainView: View {
     }
 
     // MARK: - Settings
+
+    func sourceColor(_ source: VoiceSource) -> Color {
+        switch source {
+        case .recorded: return .red
+        case .youtube: return .red
+        case .file: return .blue
+        case .imported: return .purple
+        }
+    }
 
     var settingsView: some View {
         ScrollView {

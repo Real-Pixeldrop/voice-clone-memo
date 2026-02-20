@@ -477,10 +477,10 @@ class VoiceManager: ObservableObject {
 
     func addVoiceFromRecording(name: String, transcript: String? = nil) {
         guard let url = recorder.lastRecordingURL else { return }
-        addVoiceFromFile(name: name, sourceURL: url, transcript: transcript)
+        addVoiceFromFile(name: name, sourceURL: url, transcript: transcript, source: .recorded)
     }
 
-    func addVoiceFromFile(name: String, sourceURL: URL, transcript: String? = nil) {
+    func addVoiceFromFile(name: String, sourceURL: URL, transcript: String? = nil, source: VoiceSource = .file) {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         let voicesDir = appSupport.appendingPathComponent("VoiceCloneMemo/voices")
         try? FileManager.default.createDirectory(at: voicesDir, withIntermediateDirectories: true)
@@ -499,7 +499,7 @@ class VoiceManager: ObservableObject {
                 if serverReady {
                     self.cloneVoiceLocal(name: name, audioURL: destURL, transcript: transcript) { [weak self] voiceId in
                         DispatchQueue.main.async {
-                            let profile = VoiceProfile(name: name, audioFile: destURL.path, providerVoiceId: voiceId, provider: .local)
+                            let profile = VoiceProfile(name: name, audioFile: destURL.path, providerVoiceId: voiceId, provider: .local, source: source)
                             self?.voiceProfiles.append(profile)
                             self?.saveProfiles()
                             self?.isCloning = false
@@ -508,7 +508,7 @@ class VoiceManager: ObservableObject {
                     }
                 } else {
                     DispatchQueue.main.async {
-                        let profile = VoiceProfile(name: name, audioFile: destURL.path, providerVoiceId: nil, provider: .local)
+                        let profile = VoiceProfile(name: name, audioFile: destURL.path, providerVoiceId: nil, provider: .local, source: source)
                         self.voiceProfiles.append(profile)
                         self.saveProfiles()
                         self.isCloning = false
@@ -519,7 +519,7 @@ class VoiceManager: ObservableObject {
         case .fish:
             cloneVoiceFish(name: name, audioURL: destURL) { [weak self] voiceId in
                 DispatchQueue.main.async {
-                    let profile = VoiceProfile(name: name, audioFile: destURL.path, providerVoiceId: voiceId, provider: .fish)
+                    let profile = VoiceProfile(name: name, audioFile: destURL.path, providerVoiceId: voiceId, provider: .fish, source: source)
                     self?.voiceProfiles.append(profile)
                     self?.saveProfiles()
                     self?.isCloning = false
@@ -529,7 +529,7 @@ class VoiceManager: ObservableObject {
         case .qwen:
             cloneVoiceQwen(name: name, audioURL: destURL) { [weak self] voiceId in
                 DispatchQueue.main.async {
-                    let profile = VoiceProfile(name: name, audioFile: destURL.path, providerVoiceId: voiceId, provider: .qwen)
+                    let profile = VoiceProfile(name: name, audioFile: destURL.path, providerVoiceId: voiceId, provider: .qwen, source: source)
                     self?.voiceProfiles.append(profile)
                     self?.saveProfiles()
                     self?.isCloning = false
@@ -539,7 +539,7 @@ class VoiceManager: ObservableObject {
         case .elevenLabs:
             cloneVoiceElevenLabs(name: name, audioURL: destURL) { [weak self] voiceId in
                 DispatchQueue.main.async {
-                    let profile = VoiceProfile(name: name, audioFile: destURL.path, providerVoiceId: voiceId, provider: .elevenLabs)
+                    let profile = VoiceProfile(name: name, audioFile: destURL.path, providerVoiceId: voiceId, provider: .elevenLabs, source: source)
                     self?.voiceProfiles.append(profile)
                     self?.saveProfiles()
                     self?.isCloning = false
@@ -547,7 +547,7 @@ class VoiceManager: ObservableObject {
                 }
             }
         default:
-            let profile = VoiceProfile(name: name, audioFile: destURL.path, providerVoiceId: nil, provider: config.provider)
+            let profile = VoiceProfile(name: name, audioFile: destURL.path, providerVoiceId: nil, provider: config.provider, source: source)
             voiceProfiles.append(profile)
             saveProfiles()
             isCloning = false
@@ -689,7 +689,7 @@ class VoiceManager: ObservableObject {
             guard duration > 0 else {
                 // No timestamps, use full file
                 DispatchQueue.main.async {
-                    self.addVoiceFromFile(name: name.isEmpty ? "YouTube Voice" : name, sourceURL: actualFile, transcript: transcript)
+                    self.addVoiceFromFile(name: name.isEmpty ? "YouTube Voice" : name, sourceURL: actualFile, transcript: transcript, source: .youtube)
                     self.isCloning = false
                 }
                 return
@@ -714,7 +714,7 @@ class VoiceManager: ObservableObject {
 
             if cutTask.terminationStatus == 0 && FileManager.default.fileExists(atPath: tempClip.path) {
                 DispatchQueue.main.async {
-                    self.addVoiceFromFile(name: name.isEmpty ? "YouTube Voice" : name, sourceURL: tempClip, transcript: transcript)
+                    self.addVoiceFromFile(name: name.isEmpty ? "YouTube Voice" : name, sourceURL: tempClip, transcript: transcript, source: .youtube)
                 }
             } else {
                 DispatchQueue.main.async {
@@ -1344,18 +1344,45 @@ class VoiceManager: ObservableObject {
     }
 }
 
+enum VoiceSource: String, Codable {
+    case recorded = "Enregistrée"
+    case youtube = "YouTube"
+    case file = "Fichier"
+    case imported = "Importée"
+
+    var icon: String {
+        switch self {
+        case .recorded: return "mic.fill"
+        case .youtube: return "play.rectangle.fill"
+        case .file: return "doc.fill"
+        case .imported: return "square.and.arrow.down"
+        }
+    }
+
+    var color: String {
+        switch self {
+        case .recorded: return "red"
+        case .youtube: return "red"
+        case .file: return "blue"
+        case .imported: return "purple"
+        }
+    }
+}
+
 struct VoiceProfile: Identifiable, Codable, Hashable {
     let id: UUID
     var name: String
     var audioFile: String
     var providerVoiceId: String?
     var provider: TTSProvider
+    var source: VoiceSource?
 
-    init(name: String, audioFile: String, providerVoiceId: String?, provider: TTSProvider) {
+    init(name: String, audioFile: String, providerVoiceId: String?, provider: TTSProvider, source: VoiceSource? = nil) {
         self.id = UUID()
         self.name = name
         self.audioFile = audioFile
         self.providerVoiceId = providerVoiceId
         self.provider = provider
+        self.source = source
     }
 }
