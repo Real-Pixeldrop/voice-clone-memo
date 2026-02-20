@@ -338,6 +338,103 @@ class VoiceManager: ObservableObject {
         }
     }
 
+    // MARK: - Ensure Local Server
+
+    private var serverProcess: Process?
+
+    func ensureLocalServerRunning(completion: @escaping (Bool) -> Void) {
+        // First check if server is already running
+        guard let healthURL = URL(string: "http://localhost:5123/health") else {
+            completion(false)
+            return
+        }
+
+        var request = URLRequest(url: healthURL)
+        request.timeoutInterval = 2
+
+        URLSession.shared.dataTask(with: request) { [weak self] data, _, _ in
+            if data != nil {
+                // Server is already running
+                DispatchQueue.main.async { self?.localServerRunning = true }
+                completion(true)
+                return
+            }
+
+            // Server not running, try to start it
+            guard let self = self else { completion(false); return }
+
+            let startScript = FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent(".voiceclonememo/start.sh")
+
+            guard FileManager.default.fileExists(atPath: startScript.path) else {
+                DispatchQueue.main.async {
+                    self.statusMessage = "Script de démarrage introuvable. Réinstalle Qwen3 dans les settings."
+                }
+                completion(false)
+                return
+            }
+
+            DispatchQueue.main.async {
+                self.statusMessage = "Démarrage du serveur Qwen3..."
+            }
+
+            // Launch server in background
+            DispatchQueue.global().async {
+                let task = Process()
+                task.launchPath = "/bin/bash"
+                task.arguments = [startScript.path]
+                task.standardOutput = FileHandle.nullDevice
+                task.standardError = FileHandle.nullDevice
+                do {
+                    try task.run()
+                    self.serverProcess = task
+                } catch {
+                    completion(false)
+                    return
+                }
+
+                // Wait for server to be ready (poll every 2 sec, max 90 sec for model loading)
+                var attempts = 0
+                let maxAttempts = 45  // 45 * 2 = 90 seconds
+
+                while attempts < maxAttempts {
+                    sleep(2)
+                    attempts += 1
+
+                    DispatchQueue.main.async {
+                        self.statusMessage = "Chargement du modèle Qwen3 (\(attempts * 2)s)..."
+                    }
+
+                    var serverReady = false
+                    let semaphore = DispatchSemaphore(value: 0)
+
+                    var checkReq = URLRequest(url: healthURL)
+                    checkReq.timeoutInterval = 2
+                    URLSession.shared.dataTask(with: checkReq) { data, _, _ in
+                        serverReady = data != nil
+                        semaphore.signal()
+                    }.resume()
+                    semaphore.wait()
+
+                    if serverReady {
+                        DispatchQueue.main.async {
+                            self.localServerRunning = true
+                            self.statusMessage = "Serveur Qwen3 prêt !"
+                        }
+                        completion(true)
+                        return
+                    }
+                }
+
+                // Timeout
+                DispatchQueue.main.async {
+                    self.statusMessage = "Le serveur met trop de temps à démarrer. Vérifie l'installation."
+                }
+                completion(false)
+            }
+        }.resume()
+    }
+
     private func directorySize(_ url: URL) -> UInt64 {
         guard let enumerator = FileManager.default.enumerator(at: url, includingPropertiesForKeys: [.fileSizeKey]) else { return 0 }
         var total: UInt64 = 0
@@ -381,13 +478,27 @@ class VoiceManager: ObservableObject {
 
         switch config.provider {
         case .local:
-            cloneVoiceLocal(name: name, audioURL: destURL) { [weak self] voiceId in
-                DispatchQueue.main.async {
-                    let profile = VoiceProfile(name: name, audioFile: destURL.path, providerVoiceId: voiceId, provider: .local)
-                    self?.voiceProfiles.append(profile)
-                    self?.saveProfiles()
-                    self?.isCloning = false
-                    self?.statusMessage = voiceId != nil ? "Voix clonée !" : "Voix sauvegardée (clonage échoué)"
+            // Ensure local server is running before cloning
+            ensureLocalServerRunning { [weak self] serverReady in
+                guard let self = self else { return }
+                if serverReady {
+                    self.cloneVoiceLocal(name: name, audioURL: destURL) { [weak self] voiceId in
+                        DispatchQueue.main.async {
+                            let profile = VoiceProfile(name: name, audioFile: destURL.path, providerVoiceId: voiceId, provider: .local)
+                            self?.voiceProfiles.append(profile)
+                            self?.saveProfiles()
+                            self?.isCloning = false
+                            self?.statusMessage = voiceId != nil ? "Voix clonée !" : "Voix sauvegardée (clonage échoué)"
+                        }
+                    }
+                } else {
+                    DispatchQueue.main.async {
+                        let profile = VoiceProfile(name: name, audioFile: destURL.path, providerVoiceId: nil, provider: .local)
+                        self.voiceProfiles.append(profile)
+                        self.saveProfiles()
+                        self.isCloning = false
+                        self.statusMessage = "Voix sauvegardée. Le serveur Qwen démarre, réessaie dans 1 min."
+                    }
                 }
             }
         case .fish:
@@ -652,7 +763,19 @@ class VoiceManager: ObservableObject {
 
         switch config.provider {
         case .local:
-            generateLocal(text: text, voiceId: profile?.providerVoiceId ?? "", completion: completion)
+            ensureLocalServerRunning { [weak self] serverReady in
+                guard let self = self else { return }
+                if serverReady {
+                    self.generateLocal(text: text, voiceId: profile?.providerVoiceId ?? "", completion: completion)
+                } else {
+                    DispatchQueue.main.async {
+                        self.isGenerating = false
+                        self.statusMessage = "Serveur Qwen en cours de démarrage... Réessaie dans 30 sec."
+                    }
+                    completion(nil)
+                }
+            }
+            return
         case .fish:
             generateFish(text: text, voiceId: profile?.providerVoiceId ?? config.fishVoiceId, completion: completion)
         case .qwen:

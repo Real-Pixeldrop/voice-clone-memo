@@ -7,7 +7,7 @@ class AutoUpdater: ObservableObject {
     @Published var isUpdating = false
     @Published var updateStatus: String = ""
 
-    private let currentVersion = "4.2.1"
+    private let currentVersion = "4.3.0"
     private let repoOwner = "Real-Pixeldrop"
     private let repoName = "voice-clone-memo"
 

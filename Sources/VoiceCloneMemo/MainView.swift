@@ -572,7 +572,7 @@ struct MainView: View {
                         HStack(spacing: 8) {
                             Image(systemName: "checkmark.circle.fill")
                                 .foregroundColor(.green)
-                            Text("À jour (v4.2.1)")
+                            Text("À jour (v4.3.0)")
                                 .font(.system(size: 13))
                                 .foregroundColor(.secondary)
                         }
