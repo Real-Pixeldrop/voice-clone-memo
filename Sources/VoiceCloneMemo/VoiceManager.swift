@@ -619,7 +619,7 @@ class VoiceManager: ObservableObject {
 
     // MARK: - YouTube Import
 
-    func importFromYouTube(urlString: String, startTime: String, endTime: String, name: String) {
+    func importFromYouTube(urlString: String, startTime: String, endTime: String, name: String, transcript: String? = nil) {
         isCloning = true
         statusMessage = "Téléchargement YouTube..."
 
@@ -689,7 +689,7 @@ class VoiceManager: ObservableObject {
             guard duration > 0 else {
                 // No timestamps, use full file
                 DispatchQueue.main.async {
-                    self.addVoiceFromFile(name: name.isEmpty ? "YouTube Voice" : name, sourceURL: actualFile)
+                    self.addVoiceFromFile(name: name.isEmpty ? "YouTube Voice" : name, sourceURL: actualFile, transcript: transcript)
                     self.isCloning = false
                 }
                 return
@@ -714,7 +714,7 @@ class VoiceManager: ObservableObject {
 
             if cutTask.terminationStatus == 0 && FileManager.default.fileExists(atPath: tempClip.path) {
                 DispatchQueue.main.async {
-                    self.addVoiceFromFile(name: name.isEmpty ? "YouTube Voice" : name, sourceURL: tempClip)
+                    self.addVoiceFromFile(name: name.isEmpty ? "YouTube Voice" : name, sourceURL: tempClip, transcript: transcript)
                 }
             } else {
                 DispatchQueue.main.async {

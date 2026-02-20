@@ -43,6 +43,7 @@ struct MainView: View {
     @State private var youtubeURL = ""
     @State private var ytStartTime = ""
     @State private var ytEndTime = ""
+    @State private var ytTranscript = ""
     @State private var ytVoiceName = ""
     @State private var pendingModelSize: String = ""
     @State private var modelSizeChanged = false
@@ -563,18 +564,23 @@ struct MainView: View {
                         TextField("Nom voix", text: $ytVoiceName)
                             .textFieldStyle(.roundedBorder)
                     }
+                    TextField("Transcription du segment (facultatif)", text: $ytTranscript)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.caption)
                     Button(action: {
                         voiceManager.importFromYouTube(
                             urlString: youtubeURL,
                             startTime: ytStartTime,
                             endTime: ytEndTime,
-                            name: ytVoiceName
+                            name: ytVoiceName,
+                            transcript: ytTranscript.isEmpty ? nil : ytTranscript
                         )
                         showYouTube = false
                         youtubeURL = ""
                         ytStartTime = ""
                         ytEndTime = ""
                         ytVoiceName = ""
+                        ytTranscript = ""
                     }) {
                         Text("Cloner depuis YouTube")
                             .frame(maxWidth: .infinity)
