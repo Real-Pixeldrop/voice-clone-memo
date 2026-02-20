@@ -284,12 +284,23 @@ def load_model():
     total_ram_gb = psutil.virtual_memory().total / (1024**3)
     print(f"RAM: {total_ram_gb:.1f} Go")
 
-    if total_ram_gb <= 12:
+    model_override = os.environ.get("MODEL_SIZE", "auto")
+    print(f"MODEL_SIZE override: {model_override}")
+
+    if model_override == "0.6b":
         model_name = "Qwen/Qwen3-TTS-12Hz-0.6B-Base"
+    elif model_override == "1.7b":
+        model_name = "Qwen/Qwen3-TTS-12Hz-1.7B-Base"
+    else:
+        if total_ram_gb <= 12:
+            model_name = "Qwen/Qwen3-TTS-12Hz-0.6B-Base"
+        else:
+            model_name = "Qwen/Qwen3-TTS-12Hz-1.7B-Base"
+
+    if "0.6B" in model_name or total_ram_gb <= 12:
         device = "cpu"
         dtype = torch.float32
     else:
-        model_name = "Qwen/Qwen3-TTS-12Hz-1.7B-Base"
         if torch.backends.mps.is_available():
             device = "mps"
         elif torch.cuda.is_available():

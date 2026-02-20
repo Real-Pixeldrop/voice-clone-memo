@@ -44,6 +44,8 @@ struct MainView: View {
     @State private var ytStartTime = ""
     @State private var ytEndTime = ""
     @State private var ytVoiceName = ""
+    @State private var pendingModelSize: String = ""
+    @State private var modelSizeChanged = false
 
     // MARK: - Text Stats (computed)
 
@@ -712,6 +714,58 @@ struct MainView: View {
                                                  voiceManager.localModelStatus == .installing ? .orange : .secondary)
                         }
 
+                        // Model size picker
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Modèle")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            Picker("", selection: Binding(
+                                get: { pendingModelSize.isEmpty ? voiceManager.config.localModelSize : pendingModelSize },
+                                set: { newValue in
+                                    pendingModelSize = newValue
+                                    modelSizeChanged = (newValue != voiceManager.config.localModelSize)
+                                }
+                            )) {
+                                Text("Auto (recommandé)").tag("auto")
+                                Text("0.6B (léger)").tag("0.6b")
+                                Text("1.7B (qualité)").tag("1.7b")
+                            }
+                            .labelsHidden()
+
+                            // Info text based on selection
+                            Group {
+                                switch (pendingModelSize.isEmpty ? voiceManager.config.localModelSize : pendingModelSize) {
+                                case "0.6b":
+                                    Text("Plus rapide, moins de RAM. Qualité correcte.")
+                                case "1.7b":
+                                    Text("Meilleure qualité. Nécessite 16 Go+ de RAM.")
+                                default:
+                                    Text("Choix automatique selon votre RAM (\(String(format: "%.0f", voiceManager.systemRAMGB)) Go détectés)")
+                                }
+                            }
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                        }
+
+                        // Restart server button (when model changed)
+                        if modelSizeChanged {
+                            Button(action: {
+                                voiceManager.config.localModelSize = pendingModelSize
+                                voiceManager.saveConfig()
+                                modelSizeChanged = false
+                                voiceManager.restartLocalServer()
+                            }) {
+                                HStack {
+                                    Image(systemName: "arrow.triangle.2.circlepath")
+                                    Text("Redémarrer le serveur")
+                                }
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 6)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(.orange)
+                        }
+
                         if voiceManager.localModelStatus == .notInstalled {
                             Text("Qwen3-TTS tourne 100% sur ton Mac. Gratuit, privé, illimité.")
                                 .font(.caption)
@@ -720,7 +774,7 @@ struct MainView: View {
                             Button(action: { voiceManager.installLocalModel() }) {
                                 HStack {
                                     Image(systemName: "arrow.down.circle.fill")
-                                    Text("Installer Qwen3-TTS (~4 Go)")
+                                    Text("Installer Qwen3-TTS")
                                 }
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 6)
@@ -746,7 +800,66 @@ struct MainView: View {
                                     .font(.caption2)
                                     .foregroundColor(.secondary)
                             }
+
+                            // Model size picker
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Modèle")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                Picker("Modèle", selection: $voiceManager.config.localModelSize) {
+                                    Text("Auto (recommandé)").tag("auto")
+                                    Text("0.6B (léger)").tag("0.6b")
+                                    Text("1.7B (qualité)").tag("1.7b")
+                                }
+                                .pickerStyle(.segmented)
+                                .labelsHidden()
+                                .onChange(of: voiceManager.config.localModelSize) { newValue in
+                                    if pendingModelSize.isEmpty {
+                                        pendingModelSize = newValue
+                                    }
+                                    if newValue != pendingModelSize {
+                                        pendingModelSize = newValue
+                                    }
+                                    modelSizeChanged = true
+                                }
+
+                                // Info text based on selection
+                                Group {
+                                    switch voiceManager.config.localModelSize {
+                                    case "0.6b":
+                                        Text("Plus rapide, moins de RAM. Qualité correcte.")
+                                    case "1.7b":
+                                        Text("Meilleure qualité. Nécessite 16 Go+ de RAM.")
+                                    default:
+                                        Text("Choix automatique selon votre RAM")
+                                    }
+                                }
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                            }
+
+                            // Restart server button (shown when model changed)
+                            if modelSizeChanged && voiceManager.localServerRunning {
+                                Button(action: {
+                                    voiceManager.saveConfig()
+                                    voiceManager.restartLocalServer()
+                                    modelSizeChanged = false
+                                }) {
+                                    HStack {
+                                        Image(systemName: "arrow.triangle.2.circlepath")
+                                        Text("Redémarrer le serveur")
+                                    }
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 6)
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .tint(.orange)
+                            }
                         }
+                    }
+                    .onAppear {
+                        pendingModelSize = voiceManager.config.localModelSize
+                        modelSizeChanged = false
                     }
 
                 case .fish:

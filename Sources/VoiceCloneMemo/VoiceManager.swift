@@ -53,6 +53,7 @@ struct VoiceConfig: Codable {
     var openaiKey: String
     var openaiVoice: String
     var systemVoice: String
+    var localModelSize: String  // "auto", "0.6b", "1.7b"
 
     init() {
         self.provider = .local
@@ -65,6 +66,7 @@ struct VoiceConfig: Codable {
         self.openaiKey = ""
         self.openaiVoice = "alloy"
         self.systemVoice = "Thomas"
+        self.localModelSize = "auto"
     }
 }
 
@@ -312,6 +314,43 @@ class VoiceManager: ObservableObject {
 
     private var serverProcess: Process?
 
+    var systemRAMGB: Double {
+        return Double(ProcessInfo.processInfo.physicalMemory) / (1024 * 1024 * 1024)
+    }
+
+    func stopLocalServer() {
+        if let proc = serverProcess, proc.isRunning {
+            proc.terminate()
+            serverProcess = nil
+        }
+        // Also kill any lingering server on port 5123
+        let killTask = Process()
+        killTask.launchPath = "/bin/bash"
+        killTask.arguments = ["-c", "lsof -ti:5123 | xargs kill -9 2>/dev/null"]
+        killTask.standardOutput = FileHandle.nullDevice
+        killTask.standardError = FileHandle.nullDevice
+        try? killTask.run()
+        killTask.waitUntilExit()
+        DispatchQueue.main.async { [weak self] in
+            self?.localServerRunning = false
+        }
+    }
+
+    func restartLocalServer() {
+        stopLocalServer()
+        DispatchQueue.main.async { [weak self] in
+            self?.statusMessage = "Redémarrage du serveur..."
+        }
+        // Small delay to let port free up
+        DispatchQueue.global().asyncAfter(deadline: .now() + 1.0) { [weak self] in
+            self?.ensureLocalServerRunning { success in
+                DispatchQueue.main.async {
+                    self?.statusMessage = success ? "Serveur redémarré !" : "Erreur au redémarrage du serveur"
+                }
+            }
+        }
+    }
+
     func ensureLocalServerRunning(completion: @escaping (Bool) -> Void) {
         // First check if server is already running
         guard let healthURL = URL(string: "http://localhost:5123/health") else {
@@ -348,13 +387,19 @@ class VoiceManager: ObservableObject {
                 self.statusMessage = "Démarrage du serveur Qwen3..."
             }
 
-            // Launch server in background
+            // Launch server in background with MODEL_SIZE env var
             DispatchQueue.global().async {
                 let task = Process()
                 task.launchPath = "/bin/bash"
                 task.arguments = [startScript.path]
                 task.standardOutput = FileHandle.nullDevice
                 task.standardError = FileHandle.nullDevice
+
+                // Pass MODEL_SIZE environment variable
+                var env = ProcessInfo.processInfo.environment
+                env["MODEL_SIZE"] = self.config.localModelSize
+                task.environment = env
+
                 do {
                     try task.run()
                     self.serverProcess = task
