@@ -24,5 +24,7 @@
     <true/>
     <key>NSMicrophoneUsageDescription</key>
     <string>Voice Clone Memo a besoin du micro pour enregistrer ta voix et la cloner.</string>
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>Voice Clone Memo utilise la reconnaissance vocale pour transcrire automatiquement vos enregistrements.</string>
 </dict>
 </plist>

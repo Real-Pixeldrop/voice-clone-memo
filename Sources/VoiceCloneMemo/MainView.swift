@@ -58,6 +58,7 @@ struct MainView: View {
     @State private var modelSizeChanged = false
     @State private var naturalSpeechMode = false
     @State private var showRecordingGuide = false
+    @State private var isTranscribingRecording = false
 
     // MARK: - Text Stats (computed)
 
@@ -154,6 +155,75 @@ struct MainView: View {
             }
         }
         .frame(width: 400, height: 500)
+        .overlay {
+            if voiceManager.pendingFileImportURL != nil {
+                fileTranscriptOverlay
+            }
+        }
+    }
+
+    // MARK: - File Import Transcript Overlay
+
+    var fileTranscriptOverlay: some View {
+        ZStack {
+            Color.black.opacity(0.4)
+                .ignoresSafeArea()
+
+            VStack(spacing: 12) {
+                Text("Importer une voix")
+                    .font(.headline)
+
+                HStack(spacing: 6) {
+                    Image(systemName: "doc.fill")
+                        .foregroundColor(.accentColor)
+                    Text(voiceManager.pendingFileImportName)
+                        .font(.system(size: 12))
+                        .lineLimit(1)
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Transcription (optionnel, améliore le clonage)")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    HStack {
+                        TextField("Qu'est-ce qui est dit dans l'audio ?", text: $voiceManager.pendingFileImportTranscript)
+                            .textFieldStyle(.roundedBorder)
+                        if voiceManager.isTranscribingFile {
+                            ProgressView()
+                                .scaleEffect(0.6)
+                                .help("Transcription automatique...")
+                        }
+                    }
+                }
+
+                HStack(spacing: 12) {
+                    Button(action: { voiceManager.cancelFileImport() }) {
+                        Text("Annuler")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+
+                    Button(action: { voiceManager.confirmFileImport(withTranscript: false) }) {
+                        Text("Passer")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+
+                    Button(action: { voiceManager.confirmFileImport(withTranscript: true) }) {
+                        HStack {
+                            Image(systemName: "waveform")
+                            Text("Cloner")
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+            }
+            .padding(20)
+            .background(RoundedRectangle(cornerRadius: 12).fill(.regularMaterial))
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.gray.opacity(0.3), lineWidth: 1))
+            .padding(30)
+        }
     }
 
     // MARK: - Generate Tab
@@ -297,22 +367,37 @@ struct MainView: View {
                 }
             }
 
-            // Generate button
-            Button(action: generate) {
-                HStack {
-                    if voiceManager.isGenerating {
-                        ProgressView()
-                            .scaleEffect(0.7)
-                    } else {
-                        Image(systemName: "play.fill")
+            // Generate button + Cancel
+            HStack(spacing: 8) {
+                Button(action: generate) {
+                    HStack {
+                        if voiceManager.isGenerating {
+                            ProgressView()
+                                .scaleEffect(0.7)
+                        } else {
+                            Image(systemName: "play.fill")
+                        }
+                        Text(voiceManager.isGenerating ? "Génération..." : "Générer le mémo vocal")
                     }
-                    Text(voiceManager.isGenerating ? "Génération..." : "Générer le mémo vocal")
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 8)
                 }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 8)
+                .buttonStyle(.borderedProminent)
+                .disabled(text.isEmpty || !voiceManager.isConfigured || voiceManager.isGenerating)
+
+                if voiceManager.isGenerating {
+                    Button(action: { voiceManager.cancelGeneration() }) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "xmark.circle.fill")
+                            Text("Annuler")
+                        }
+                        .padding(.vertical, 8)
+                        .padding(.horizontal, 12)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.red)
+                }
             }
-            .buttonStyle(.borderedProminent)
-            .disabled(text.isEmpty || !voiceManager.isConfigured || voiceManager.isGenerating)
             .padding(.horizontal)
 
             // Error banner
@@ -504,9 +589,16 @@ struct MainView: View {
                     VStack(spacing: 6) {
                         TextField("Nom de la voix", text: $newVoiceName)
                             .textFieldStyle(.roundedBorder)
-                        TextField("Qu'as-tu dit ? (optionnel, améliore le clonage)", text: $newVoiceTranscript)
-                            .textFieldStyle(.roundedBorder)
-                            .font(.caption)
+                        HStack {
+                            TextField("Qu'as-tu dit ? (optionnel, améliore le clonage)", text: $newVoiceTranscript)
+                                .textFieldStyle(.roundedBorder)
+                                .font(.caption)
+                            if isTranscribingRecording {
+                                ProgressView()
+                                    .scaleEffect(0.6)
+                                    .help("Transcription en cours...")
+                            }
+                        }
                         HStack {
                             Button("Annuler") {
                                 newVoiceName = ""
@@ -560,8 +652,18 @@ struct MainView: View {
                         .overlay(RoundedRectangle(cornerRadius: 10).stroke(recordingIndicatorColor.opacity(0.3), lineWidth: 1))
 
                         Button(action: {
-                            voiceManager.recorder.stopRecording()
+                            let recordedURL = voiceManager.recorder.stopRecording()
                             showNameInput = true
+                            // Auto-transcribe the recording
+                            if let url = recordedURL {
+                                isTranscribingRecording = true
+                                voiceManager.recorder.transcribeAudio(url: url) { transcript in
+                                    isTranscribingRecording = false
+                                    if let transcript = transcript {
+                                        newVoiceTranscript = transcript
+                                    }
+                                }
+                            }
                         }) {
                             HStack {
                                 Image(systemName: "stop.circle.fill")
@@ -708,10 +810,25 @@ struct MainView: View {
 
             // Status
             if !voiceManager.statusMessage.isEmpty {
-                Text(voiceManager.statusMessage)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .padding(.horizontal)
+                HStack {
+                    Text(voiceManager.statusMessage)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    if voiceManager.isCloning {
+                        Spacer()
+                        Button(action: { voiceManager.cancelGeneration() }) {
+                            HStack(spacing: 3) {
+                                Image(systemName: "xmark.circle.fill")
+                                Text("Annuler")
+                            }
+                            .font(.caption)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(.red)
+                        .controlSize(.small)
+                    }
+                }
+                .padding(.horizontal)
             }
 
             Divider()

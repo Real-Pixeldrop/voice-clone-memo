@@ -1,5 +1,6 @@
 import Foundation
 import AVFoundation
+import Speech
 
 class AudioRecorder: NSObject, ObservableObject {
     @Published var isRecording = false
@@ -83,5 +84,46 @@ class AudioRecorder: NSObject, ObservableObject {
 
     var lastRecordingURL: URL? {
         return currentRecordingURL
+    }
+
+    // MARK: - Speech Transcription
+
+    /// Transcribes audio file using Apple Speech framework.
+    /// Tries fr-FR first, falls back to en-US.
+    func transcribeAudio(url: URL, completion: @escaping (String?) -> Void) {
+        SFSpeechRecognizer.requestAuthorization { status in
+            guard status == .authorized else {
+                DispatchQueue.main.async { completion(nil) }
+                return
+            }
+
+            // Try fr-FR first
+            let frRecognizer = SFSpeechRecognizer(locale: Locale(identifier: "fr-FR"))
+            let recognizer: SFSpeechRecognizer?
+            if frRecognizer?.isAvailable == true {
+                recognizer = frRecognizer
+            } else {
+                recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
+            }
+
+            guard let speechRecognizer = recognizer, speechRecognizer.isAvailable else {
+                DispatchQueue.main.async { completion(nil) }
+                return
+            }
+
+            let request = SFSpeechURLRecognitionRequest(url: url)
+            request.shouldReportPartialResults = false
+
+            speechRecognizer.recognitionTask(with: request) { result, error in
+                let transcript = result?.bestTranscription.formattedString
+                DispatchQueue.main.async {
+                    if let transcript = transcript, !transcript.isEmpty {
+                        completion(transcript)
+                    } else {
+                        completion(nil)
+                    }
+                }
+            }
+        }
     }
 }

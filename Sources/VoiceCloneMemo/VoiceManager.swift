@@ -125,6 +125,11 @@ class VoiceManager: ObservableObject {
     private let historyFile: URL
     let outputDir: URL
     private var cancellables = Set<AnyCancellable>()
+    private var currentTask: URLSessionDataTask?
+    @Published var pendingFileImportURL: URL?
+    @Published var pendingFileImportName: String = ""
+    @Published var pendingFileImportTranscript: String = ""
+    @Published var isTranscribingFile: Bool = false
 
     var localModelStatusText: String {
         switch localModelStatus {
@@ -534,6 +539,17 @@ class VoiceManager: ObservableObject {
         }
     }
 
+    // MARK: - Cancel Generation
+
+    func cancelGeneration() {
+        currentTask?.cancel()
+        currentTask = nil
+        isGenerating = false
+        isCloning = false
+        statusMessage = "Génération annulée"
+        lastError = nil
+    }
+
     // MARK: - Voice Profiles
 
     func addVoiceFromRecording(name: String, transcript: String? = nil) {
@@ -635,16 +651,49 @@ class VoiceManager: ObservableObject {
                 extractAudioFromVideo(url: url) { [weak self] audioURL in
                     DispatchQueue.main.async {
                         if let audioURL = audioURL {
-                            self?.addVoiceFromFile(name: url.deletingPathExtension().lastPathComponent, sourceURL: audioURL)
+                            self?.showFileTranscriptDialog(url: audioURL, name: url.deletingPathExtension().lastPathComponent)
                         } else {
                             self?.statusMessage = "Erreur extraction audio"
                         }
                     }
                 }
             } else {
-                addVoiceFromFile(name: url.deletingPathExtension().lastPathComponent, sourceURL: url)
+                showFileTranscriptDialog(url: url, name: url.deletingPathExtension().lastPathComponent)
             }
         }
+    }
+
+    func showFileTranscriptDialog(url: URL, name: String) {
+        pendingFileImportURL = url
+        pendingFileImportName = name
+        pendingFileImportTranscript = ""
+        isTranscribingFile = true
+
+        // Auto-transcribe the imported file
+        recorder.transcribeAudio(url: url) { [weak self] transcript in
+            DispatchQueue.main.async {
+                self?.isTranscribingFile = false
+                if let transcript = transcript {
+                    self?.pendingFileImportTranscript = transcript
+                }
+            }
+        }
+    }
+
+    func confirmFileImport(withTranscript: Bool) {
+        guard let url = pendingFileImportURL else { return }
+        let transcript = withTranscript && !pendingFileImportTranscript.isEmpty ? pendingFileImportTranscript : nil
+        addVoiceFromFile(name: pendingFileImportName, sourceURL: url, transcript: transcript)
+        pendingFileImportURL = nil
+        pendingFileImportName = ""
+        pendingFileImportTranscript = ""
+    }
+
+    func cancelFileImport() {
+        pendingFileImportURL = nil
+        pendingFileImportName = ""
+        pendingFileImportTranscript = ""
+        isTranscribingFile = false
     }
 
     private func extractAudioFromVideo(url: URL, completion: @escaping (URL?) -> Void) {
@@ -937,7 +986,7 @@ class VoiceManager: ObservableObject {
         }
         request.httpBody = try? JSONSerialization.data(withJSONObject: bodyDict)
 
-        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+        let task = URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
             DispatchQueue.main.async { self?.isGenerating = false }
             if let error = error {
                 DispatchQueue.main.async {
@@ -974,7 +1023,9 @@ class VoiceManager: ObservableObject {
                 }
                 completion(outputURL)
             }
-        }.resume()
+        }
+        currentTask = task
+        task.resume()
     }
 
     // MARK: - Fish Audio
@@ -1049,12 +1100,12 @@ class VoiceManager: ObservableObject {
         }
         request.httpBody = try? JSONSerialization.data(withJSONObject: bodyDict)
 
-        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+        let task = URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
             DispatchQueue.main.async { self?.isGenerating = false }
             if let error = error {
                 DispatchQueue.main.async {
-                    self?.lastError = "Erreur réseau : \(error.localizedDescription)"
-                    self?.statusMessage = ""
+                    self?.lastError = (error as NSError).code == NSURLErrorCancelled ? nil : "Erreur réseau : \(error.localizedDescription)"
+                    self?.statusMessage = (error as NSError).code == NSURLErrorCancelled ? "Génération annulée" : ""
                 }
                 completion(nil)
                 return
@@ -1079,7 +1130,9 @@ class VoiceManager: ObservableObject {
                 }
                 completion(outputURL)
             }
-        }.resume()
+        }
+        currentTask = task
+        task.resume()
     }
 
     // MARK: - Qwen3-TTS-VC
@@ -1151,13 +1204,13 @@ class VoiceManager: ObservableObject {
         ]
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
 
-        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+        let task = URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
             DispatchQueue.main.async { self?.isGenerating = false }
 
             if let error = error {
                 DispatchQueue.main.async {
-                    self?.lastError = "Erreur réseau : \(error.localizedDescription)"
-                    self?.statusMessage = ""
+                    self?.lastError = (error as NSError).code == NSURLErrorCancelled ? nil : "Erreur réseau : \(error.localizedDescription)"
+                    self?.statusMessage = (error as NSError).code == NSURLErrorCancelled ? "Génération annulée" : ""
                 }
                 completion(nil)
                 return
@@ -1216,7 +1269,9 @@ class VoiceManager: ObservableObject {
                 self?.statusMessage = ""
             }
             completion(nil)
-        }.resume()
+        }
+        currentTask = task
+        task.resume()
     }
 
     // MARK: - ElevenLabs
@@ -1278,12 +1333,12 @@ class VoiceManager: ObservableObject {
         ]
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
 
-        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+        let task = URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
             DispatchQueue.main.async { self?.isGenerating = false }
             if let error = error {
                 DispatchQueue.main.async {
-                    self?.lastError = "Erreur réseau : \(error.localizedDescription)"
-                    self?.statusMessage = ""
+                    self?.lastError = (error as NSError).code == NSURLErrorCancelled ? nil : "Erreur réseau : \(error.localizedDescription)"
+                    self?.statusMessage = (error as NSError).code == NSURLErrorCancelled ? "Génération annulée" : ""
                 }
                 completion(nil)
                 return
@@ -1308,7 +1363,9 @@ class VoiceManager: ObservableObject {
                 }
                 completion(outputURL)
             }
-        }.resume()
+        }
+        currentTask = task
+        task.resume()
     }
 
     // MARK: - OpenAI TTS
@@ -1332,12 +1389,12 @@ class VoiceManager: ObservableObject {
         ]
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
 
-        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+        let task2 = URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
             DispatchQueue.main.async { self?.isGenerating = false }
             if let error = error {
                 DispatchQueue.main.async {
-                    self?.lastError = "Erreur réseau : \(error.localizedDescription)"
-                    self?.statusMessage = ""
+                    self?.lastError = (error as NSError).code == NSURLErrorCancelled ? nil : "Erreur réseau : \(error.localizedDescription)"
+                    self?.statusMessage = (error as NSError).code == NSURLErrorCancelled ? "Génération annulée" : ""
                 }
                 completion(nil)
                 return
@@ -1362,7 +1419,9 @@ class VoiceManager: ObservableObject {
                 }
                 completion(outputURL)
             }
-        }.resume()
+        }
+        currentTask = task2
+        task2.resume()
     }
 
     // MARK: - System Voice
