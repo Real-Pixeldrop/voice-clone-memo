@@ -139,12 +139,12 @@ class VoiceManager: ObservableObject {
 
     func checkLocalModelStatus() {
         let home = FileManager.default.homeDirectoryForCurrentUser
-        let modelConfig = home.appendingPathComponent(".voiceclonememo/model/config.json")
         let serverScript = home.appendingPathComponent(".voiceclonememo/server.py")
         let startScript = home.appendingPathComponent(".voiceclonememo/start.sh")
 
-        if FileManager.default.fileExists(atPath: modelConfig.path) &&
-           FileManager.default.fileExists(atPath: serverScript.path) &&
+        // Model downloads automatically on first run via from_pretrained()
+        // Just check if server script and start script exist
+        if FileManager.default.fileExists(atPath: serverScript.path) &&
            FileManager.default.fileExists(atPath: startScript.path) {
             localModelStatus = .ready
             checkLocalServerStatus()
@@ -254,62 +254,21 @@ class VoiceManager: ObservableObject {
             }
         }
 
-        // Step 3: Install deps
-        updateInstallUI(step: "Installation de PyTorch (quelques minutes)...", progress: 0.25)
-        let torch = shellRun("\(conda) run -n vcm pip install --quiet torch torchaudio 2>&1")
-        guard torch.status == 0 else {
-            updateInstallUI(step: "Erreur : installation PyTorch échouée", progress: 0)
-            DispatchQueue.main.async { self.localModelStatus = .notInstalled }
-            return
-        }
-
-        updateInstallUI(step: "Installation des dépendances audio...", progress: 0.35)
-        let deps = shellRun("\(conda) run -n vcm pip install --quiet flask soundfile scipy transformers accelerate huggingface_hub 2>&1")
+        // Step 3: Install deps (qwen-tts installs transformers automatically)
+        updateInstallUI(step: "Installation de PyTorch et qwen-tts (quelques minutes)...", progress: 0.25)
+        let deps = shellRun("\(conda) run -n vcm pip install --quiet torch torchaudio flask soundfile psutil qwen-tts 2>&1")
         guard deps.status == 0 else {
             updateInstallUI(step: "Erreur : installation dépendances échouée", progress: 0)
             DispatchQueue.main.async { self.localModelStatus = .notInstalled }
             return
         }
 
-        // Step 4: Download model
-        updateInstallUI(step: "Téléchargement du modèle Qwen3-TTS (~4 Go)...", progress: 0.40)
-        let modelDir = installDir.appendingPathComponent("model")
-        if !FileManager.default.fileExists(atPath: modelDir.appendingPathComponent("config.json").path) {
-            let dlScript = installDir.appendingPathComponent("dl_model.py")
-            let pyCode = "from huggingface_hub import snapshot_download\nsnapshot_download('Qwen/Qwen3-TTS-12Hz-1.7B-Base', local_dir='\(modelDir.path)')\nprint('OK')"
-            try? pyCode.write(to: dlScript, atomically: true, encoding: .utf8)
-
-            // Monitor progress in background
-            let progressTimer = DispatchSource.makeTimerSource(queue: .global())
-            progressTimer.schedule(deadline: .now(), repeating: 3.0)
-            progressTimer.setEventHandler { [weak self] in
-                let size = self?.directorySize(modelDir) ?? 0
-                let expected: UInt64 = 4_000_000_000
-                let pct = min(Double(size) / Double(expected), 0.99)
-                let overall = 0.40 + (pct * 0.48)
-                let mb = Double(size) / 1_000_000
-                let sizeStr = mb > 1000 ? String(format: "%.1f Go", mb / 1000) : String(format: "%.0f Mo", mb)
-                self?.updateInstallUI(step: "Téléchargement (\(sizeStr) / ~4 Go)...", progress: overall)
-            }
-            progressTimer.resume()
-
-            let dlResult = shellRun("\(conda) run -n vcm python3 \(dlScript.path) 2>&1")
-            progressTimer.cancel()
-            try? FileManager.default.removeItem(at: dlScript)
-
-            guard dlResult.status == 0 else {
-                updateInstallUI(step: "Erreur : téléchargement modèle échoué", progress: 0)
-                DispatchQueue.main.async { self.localModelStatus = .notInstalled }
-                return
-            }
-        }
-
-        // Step 5: Copy server.py
+        // Step 4: Copy server.py (model downloads automatically on first server run)
         updateInstallUI(step: "Configuration du serveur...", progress: 0.92)
         let serverPy = installDir.appendingPathComponent("server.py")
         try? SetupManager.embeddedServerPy.write(to: serverPy, atomically: true, encoding: .utf8)
 
-        // Step 6: Create start script
+        // Step 5: Create start script
         updateInstallUI(step: "Finalisation...", progress: 0.96)
         let condaDir = URL(fileURLWithPath: conda).deletingLastPathComponent().deletingLastPathComponent()
         let startScript = installDir.appendingPathComponent("start.sh")

@@ -10,14 +10,12 @@ class SetupManager: ObservableObject {
     @Published var isComplete = false
 
     private let installDir: URL
-    private let modelDir: URL
     private let serverScript: URL
     private let startScript: URL
 
     init() {
         let home = FileManager.default.homeDirectoryForCurrentUser
         installDir = home.appendingPathComponent(".voiceclonememo")
-        modelDir = installDir.appendingPathComponent("model")
         serverScript = installDir.appendingPathComponent("server.py")
         startScript = installDir.appendingPathComponent("start.sh")
 
@@ -25,12 +23,12 @@ class SetupManager: ObservableObject {
     }
 
     func checkSetup() {
-        // Check if model is downloaded and server script exists
-        let modelExists = FileManager.default.fileExists(atPath: modelDir.appendingPathComponent("config.json").path)
+        // Model downloads automatically on first run via from_pretrained()
+        // Just check if server script and start script exist
         let serverExists = FileManager.default.fileExists(atPath: serverScript.path)
         let startExists = FileManager.default.fileExists(atPath: startScript.path)
 
-        isSetupNeeded = !(modelExists && serverExists && startExists)
+        isSetupNeeded = !(serverExists && startExists)
         isComplete = !isSetupNeeded
     }
 
@@ -90,21 +88,14 @@ class SetupManager: ObservableObject {
             return
         }
 
-        // Step 4: Download model
-        updateUI(step: "Téléchargement du modèle Qwen3-TTS (~4 Go)...", progress: 0.40)
-        if !downloadModel(conda: conda) {
-            failWith("Erreur lors du téléchargement du modèle. Vérifie ta connexion internet.")
-            return
-        }
-
-        // Step 5: Copy server script
+        // Step 4: Copy server script (model downloads automatically on first run)
         updateUI(step: "Configuration du serveur local...", progress: 0.90)
         if !copyServerFiles() {
             failWith("Erreur lors de la copie des fichiers serveur.")
             return
         }
 
-        // Step 6: Create start script
+        // Step 5: Create start script
         updateUI(step: "Finalisation...", progress: 0.95)
         createStartScript(conda: conda)
 
@@ -195,76 +186,21 @@ class SetupManager: ObservableObject {
 
     private func installDeps(conda: String) -> Bool {
         // Use conda run to ensure correct env
-        updateUI(step: "Installation de PyTorch (peut prendre quelques minutes)...", progress: 0.30)
-        let torch = shell("\(conda) run -n vcm pip install --quiet torch torchaudio 2>&1")
-        guard torch.status == 0 else {
+        updateUI(step: "Installation de PyTorch et qwen-tts (peut prendre quelques minutes)...", progress: 0.30)
+        let deps = shell("\(conda) run -n vcm pip install --quiet torch torchaudio flask soundfile psutil qwen-tts 2>&1")
+        guard deps.status == 0 else {
             // Fallback: try with full pip path
             let condaDir = URL(fileURLWithPath: conda).deletingLastPathComponent().deletingLastPathComponent()
             let pip = condaDir.appendingPathComponent("envs/vcm/bin/pip").path
             if FileManager.default.fileExists(atPath: pip) {
-                let r = shell("\(pip) install --quiet torch torchaudio 2>&1")
+                let r = shell("\(pip) install --quiet torch torchaudio flask soundfile psutil qwen-tts 2>&1")
                 guard r.status == 0 else { return false }
             } else {
                 return false
             }
             return true
         }
-
-        updateUI(step: "Installation des dépendances audio...", progress: 0.35)
-        let deps = shell("\(conda) run -n vcm pip install --quiet flask soundfile scipy transformers accelerate huggingface_hub 2>&1")
-        return deps.status == 0
-    }
-
-    private func downloadModel(conda: String) -> Bool {
-        // Check if model already downloaded
-        if FileManager.default.fileExists(atPath: modelDir.appendingPathComponent("config.json").path) {
-            return true
-        }
-
-        let script = """
-        from huggingface_hub import snapshot_download
-        snapshot_download('Qwen/Qwen3-TTS-12Hz-1.7B-Base', local_dir='\(modelDir.path)')
-        print('OK')
-        """
-
-        let tempScript = installDir.appendingPathComponent("download_model.py")
-        try? script.write(to: tempScript, atomically: true, encoding: .utf8)
-
-        // Start download with progress monitoring
-        let task = Process()
-        let outputPipe = Pipe()
-
-        // Always use conda run for reliable env activation
-        task.launchPath = "/bin/bash"
-        task.arguments = ["-c", "\(conda) run -n vcm python3 \(tempScript.path) 2>&1"]
-
-        task.standardOutput = outputPipe
-        task.standardError = outputPipe
-
-        // Monitor progress in background
-        let progressTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] timer in
-            // Estimate progress based on model directory size
-            let size = self?.directorySize(self?.modelDir ?? URL(fileURLWithPath: "/")) ?? 0
-            let expectedSize: UInt64 = 4_000_000_000 // ~4 GB
-            let downloadProgress = min(Double(size) / Double(expectedSize), 0.99)
-            let overallProgress = 0.40 + (downloadProgress * 0.48) // 40% to 88%
-            self?.updateUI(
-                step: "Téléchargement du modèle (\(self?.formatBytes(size) ?? "0 MB") / ~4 Go)...",
-                progress: overallProgress
-            )
-        }
-
-        do {
-            try task.run()
-            task.waitUntilExit()
-            progressTimer.invalidate()
-        } catch {
-            progressTimer.invalidate()
-            return false
-        }
-
-        try? FileManager.default.removeItem(at: tempScript)
-        return task.terminationStatus == 0
+        return true
     }
 
     private func copyServerFiles() -> Bool {
@@ -317,161 +253,111 @@ class SetupManager: ObservableObject {
         }
     }
 
-    private func directorySize(_ url: URL) -> UInt64 {
-        guard let enumerator = FileManager.default.enumerator(at: url, includingPropertiesForKeys: [.fileSizeKey]) else {
-            return 0
-        }
-        var total: UInt64 = 0
-        for case let fileURL as URL in enumerator {
-            if let size = try? fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize {
-                total += UInt64(size)
-            }
-        }
-        return total
-    }
-
-    private func formatBytes(_ bytes: UInt64) -> String {
-        let mb = Double(bytes) / 1_000_000
-        if mb > 1000 {
-            return String(format: "%.1f Go", mb / 1000)
-        }
-        return String(format: "%.0f Mo", mb)
-    }
-
     // MARK: - Embedded server.py
 
     static let embeddedServerPy = """
 #!/usr/bin/env python3
-\"\"\"Local Qwen3-TTS REST API server for VoiceCloneMemo.\"\"\"
+\"\"\"Local Qwen3-TTS REST API server for VoiceCloneMemo.
+Uses the official qwen-tts package with auto hardware detection.\"\"\"
 
 import os
-import sys
 import json
-import base64
-import tempfile
 import uuid
 import time
-from pathlib import Path
 
 from flask import Flask, request, jsonify, send_file
 
 app = Flask(__name__)
 
-# Globals
 model = None
-processor = None
-MODEL_PATH = os.path.expanduser("~/.voiceclonememo/model")
 VOICES_DIR = os.path.expanduser("~/.voiceclonememo/voices")
 OUTPUT_DIR = os.path.expanduser("~/.voiceclonememo/output")
 os.makedirs(VOICES_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 def load_model():
-    global model, processor
+    global model
     import torch
-    from transformers import AutoModelForCausalLM, AutoProcessor
+    import psutil
+    from qwen_tts import Qwen3TTSModel
 
-    print("Chargement du modele Qwen3-TTS 1.7B...")
-    device = "mps" if torch.backends.mps.is_available() else "cpu"
-    print(f"Device: {device}")
+    total_ram_gb = psutil.virtual_memory().total / (1024**3)
+    print(f"RAM: {total_ram_gb:.1f} Go")
 
-    processor = AutoProcessor.from_pretrained(MODEL_PATH, trust_remote_code=True)
-    model = AutoModelForCausalLM.from_pretrained(
-        MODEL_PATH,
-        trust_remote_code=True,
-        torch_dtype=torch.float32,
-        device_map=device,
-        attn_implementation="sdpa"
-    )
+    if total_ram_gb <= 12:
+        model_name = "Qwen/Qwen3-TTS-12Hz-0.6B-Base"
+        device = "cpu"
+        dtype = torch.float32
+    else:
+        model_name = "Qwen/Qwen3-TTS-12Hz-1.7B-Base"
+        if torch.backends.mps.is_available():
+            device = "mps"
+        elif torch.cuda.is_available():
+            device = "cuda:0"
+        else:
+            device = "cpu"
+        dtype = torch.float32
+
+    print(f"Modele: {model_name} | Device: {device}")
+    model = Qwen3TTSModel.from_pretrained(model_name, device_map=device, dtype=dtype)
     print("Modele charge !")
 
 @app.route("/health", methods=["GET"])
 def health():
-    return jsonify({"status": "ok", "model": "qwen3-tts-1.7b"})
+    return jsonify({"status": "ok", "model": "qwen3-tts"})
 
 @app.route("/v1/clone", methods=["POST"])
 def clone_voice():
     if "audio" not in request.files:
         return jsonify({"error": "No audio file"}), 400
-
     name = request.form.get("name", f"voice_{int(time.time())}")
     transcript = request.form.get("transcript", "")
     audio_file = request.files["audio"]
-
     voice_id = str(uuid.uuid4())[:8]
     voice_dir = os.path.join(VOICES_DIR, voice_id)
     os.makedirs(voice_dir, exist_ok=True)
-
     audio_path = os.path.join(voice_dir, "reference.wav")
     audio_file.save(audio_path)
-
     meta = {"name": name, "voice_id": voice_id, "audio": audio_path, "transcript": transcript}
     with open(os.path.join(voice_dir, "meta.json"), "w") as f:
         json.dump(meta, f)
-
     return jsonify({"voice_id": voice_id, "name": name})
 
 @app.route("/v1/tts", methods=["POST"])
 def text_to_speech():
-    import torch
     import soundfile as sf
-
     data = request.get_json()
     text = data.get("text", "")
     voice_id = data.get("voice_id", "")
     instruction = data.get("instruction", "")
-
     if not text:
         return jsonify({"error": "No text provided"}), 400
-
-    # Prepend instruction to text if provided (emotion/tone control)
-    effective_text = f"[{instruction}] {text}" if instruction else text
-
     try:
-        if voice_id and os.path.exists(os.path.join(VOICES_DIR, voice_id, "reference.wav")):
-            ref_audio = os.path.join(VOICES_DIR, voice_id, "reference.wav")
-
-            # Load transcript if available (improves cloning quality)
-            ref_text = None
-            meta_path = os.path.join(VOICES_DIR, voice_id, "meta.json")
-            if os.path.exists(meta_path):
-                with open(meta_path) as mf:
-                    meta = json.load(mf)
-                    ref_text = meta.get("transcript", "")
-                    if not ref_text:
-                        ref_text = None
-
-            proc_kwargs = {
-                "text": effective_text,
-                "audio": ref_audio,
-                "return_tensors": "pt",
-                "trust_remote_code": True
-            }
-            if ref_text:
-                proc_kwargs["reference_text"] = ref_text
-
-            inputs = processor(**proc_kwargs)
+        ref_audio_path = None
+        ref_text = None
+        if voice_id:
+            voice_dir = os.path.join(VOICES_DIR, voice_id)
+            ref_path = os.path.join(voice_dir, "reference.wav")
+            meta_path = os.path.join(voice_dir, "meta.json")
+            if os.path.exists(ref_path):
+                ref_audio_path = ref_path
+                if os.path.exists(meta_path):
+                    with open(meta_path) as f:
+                        meta = json.load(f)
+                        ref_text = meta.get("transcript", "") or None
+        prompt = text
+        if instruction:
+            prompt = f"[{instruction}] {text}"
+        if ref_audio_path:
+            wavs, sr = model.generate_voice_clone(text=prompt, language="Auto", ref_audio=ref_audio_path, ref_text=ref_text or "")
         else:
-            inputs = processor(
-                text=effective_text,
-                return_tensors="pt",
-                trust_remote_code=True
-            )
-
-        device = "mps" if torch.backends.mps.is_available() else "cpu"
-        inputs = {k: v.to(device) if hasattr(v, 'to') else v for k, v in inputs.items()}
-
-        with torch.no_grad():
-            output = model.generate(**inputs, max_new_tokens=2048)
-
-        audio_array = processor.decode(output[0], return_tensors=False)
-
+            wavs, sr = model.generate_voice_clone(text=prompt, language="Auto", ref_audio="", ref_text="", x_vector_only_mode=True)
         output_path = os.path.join(OUTPUT_DIR, f"memo_{int(time.time())}.wav")
-        sf.write(output_path, audio_array, 24000)
-
+        sf.write(output_path, wavs[0], sr)
         return send_file(output_path, mimetype="audio/wav")
-
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
 @app.route("/v1/voices", methods=["GET"])
@@ -486,7 +372,7 @@ def list_voices():
 
 if __name__ == "__main__":
     load_model()
-    print("Qwen3-TTS serveur local sur http://localhost:5123")
+    print("Serveur Qwen3-TTS sur http://localhost:5123")
     app.run(host="127.0.0.1", port=5123, debug=False)
 """
 }
