@@ -185,6 +185,10 @@ class SetupManager: ObservableObject {
             return true
         }
 
+        // Accept TOS first (required since conda 24.x)
+        _ = shell("\(conda) tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main 2>&1")
+        _ = shell("\(conda) tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r 2>&1")
+
         let create = shell("\(conda) create -n vcm python=3.11 -y 2>&1")
         return create.status == 0
     }
