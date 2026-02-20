@@ -4,6 +4,7 @@ import AppKit
 struct MainView: View {
     @ObservedObject var voiceManager: VoiceManager
     @ObservedObject var autoUpdater: AutoUpdater
+    @StateObject private var audioPlayer = AudioPlayerManager()
     @State private var currentTab = 0
     @State private var text = ""
     @State private var selectedProfile: VoiceProfile?
@@ -131,31 +132,16 @@ struct MainView: View {
             .disabled(text.isEmpty || !voiceManager.isConfigured || voiceManager.isGenerating)
             .padding(.horizontal)
 
-            // Last generated
+            // Error banner
+            if let error = voiceManager.lastError {
+                errorBanner(message: error)
+            }
+
+            // Mini audio player
             if let lastURL = voiceManager.lastGeneratedURL {
                 VStack(spacing: 8) {
-                    // Audio player bar
-                    HStack(spacing: 12) {
-                        Button(action: { playAudio(lastURL) }) {
-                            HStack(spacing: 6) {
-                                Image(systemName: "play.circle.fill")
-                                    .font(.title2)
-                                    .foregroundColor(.accentColor)
-                                VStack(alignment: .leading) {
-                                    Text("Mémo vocal prêt")
-                                        .font(.system(size: 12, weight: .medium))
-                                    Text(lastURL.lastPathComponent)
-                                        .font(.caption2)
-                                        .foregroundColor(.secondary)
-                                }
-                            }
-                        }
-                        .buttonStyle(.plain)
-
-                        Spacer()
-                    }
-                    .padding(8)
-                    .background(RoundedRectangle(cornerRadius: 8).fill(Color.accentColor.opacity(0.08)))
+                    // Compact player bar
+                    miniPlayerView(url: lastURL)
 
                     // Action buttons
                     HStack(spacing: 8) {
@@ -210,6 +196,119 @@ struct MainView: View {
             Spacer()
         }
         .padding(.top, 8)
+    }
+
+    // MARK: - Mini Player
+
+    func miniPlayerView(url: URL) -> some View {
+        VStack(spacing: 6) {
+            HStack(spacing: 10) {
+                // Play/Pause button
+                Button(action: {
+                    if audioPlayer.duration == 0 {
+                        audioPlayer.load(url: url)
+                    }
+                    audioPlayer.playPause()
+                }) {
+                    Image(systemName: audioPlayer.isPlaying ? "pause.circle.fill" : "play.circle.fill")
+                        .font(.system(size: 28))
+                        .foregroundColor(.accentColor)
+                }
+                .buttonStyle(.plain)
+
+                VStack(spacing: 4) {
+                    // Progress bar (clickable for seek)
+                    GeometryReader { geometry in
+                        ZStack(alignment: .leading) {
+                            // Background track
+                            Capsule()
+                                .fill(Color.gray.opacity(0.2))
+                                .frame(height: 6)
+
+                            // Progress fill
+                            Capsule()
+                                .fill(Color.accentColor)
+                                .frame(width: max(0, geometry.size.width * CGFloat(audioPlayer.progress)), height: 6)
+                        }
+                        .contentShape(Rectangle())
+                        .gesture(
+                            DragGesture(minimumDistance: 0)
+                                .onChanged { value in
+                                    let fraction = max(0, min(1, Double(value.location.x / geometry.size.width)))
+                                    if audioPlayer.duration == 0 {
+                                        audioPlayer.load(url: url)
+                                    }
+                                    audioPlayer.seek(to: fraction)
+                                }
+                        )
+                    }
+                    .frame(height: 6)
+
+                    // Time labels
+                    HStack {
+                        Text(AudioPlayerManager.formatTime(audioPlayer.currentTime))
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundColor(.secondary)
+                        Spacer()
+                        Text(AudioPlayerManager.formatTime(audioPlayer.duration))
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+        }
+        .padding(10)
+        .frame(height: 56)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Color.accentColor.opacity(0.06)))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.accentColor.opacity(0.15), lineWidth: 1))
+        .onAppear {
+            // Load duration info
+            if audioPlayer.duration == 0 {
+                audioPlayer.load(url: url)
+            }
+        }
+        .onChange(of: voiceManager.lastGeneratedURL) { newURL in
+            // When a new file is generated, load and auto-play
+            if let newURL = newURL {
+                audioPlayer.load(url: newURL)
+                audioPlayer.play()
+            }
+        }
+    }
+
+    // MARK: - Error Banner
+
+    func errorBanner(message: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundColor(.red)
+                .font(.body)
+
+            Text(message)
+                .font(.system(size: 12))
+                .foregroundColor(Color(nsColor: NSColor(red: 0.7, green: 0.1, blue: 0.1, alpha: 1)))
+                .lineLimit(3)
+
+            Spacer()
+
+            Button(action: generate) {
+                Text("Réessayer")
+                    .font(.system(size: 11, weight: .medium))
+            }
+            .buttonStyle(.bordered)
+            .tint(.red)
+            .disabled(text.isEmpty || !voiceManager.isConfigured || voiceManager.isGenerating)
+        }
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color.red.opacity(0.08))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color.red.opacity(0.2), lineWidth: 1)
+        )
+        .padding(.horizontal)
     }
 
     // MARK: - Voices Tab
@@ -717,14 +816,9 @@ struct MainView: View {
 
     func generate() {
         voiceManager.generateSpeech(text: text, profile: selectedProfile) { url in
-            if let url = url {
-                playAudio(url)
-            }
+            // Notification is sent from AppDelegate via observation
+            // Audio auto-play is handled by onChange(of: voiceManager.lastGeneratedURL)
         }
-    }
-
-    func playAudio(_ url: URL) {
-        NSWorkspace.shared.open(url)
     }
 
     func saveAudioAs(_ url: URL) {

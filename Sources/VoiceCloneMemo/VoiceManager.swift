@@ -81,6 +81,7 @@ class VoiceManager: ObservableObject {
     @Published var isCloning = false
     @Published var lastGeneratedURL: URL?
     @Published var statusMessage: String = ""
+    @Published var lastError: String?
     @Published var localModelStatus: LocalModelStatus = .notInstalled
     @Published var localServerRunning = false
     @Published var installProgress: Double = 0
@@ -769,6 +770,7 @@ class VoiceManager: ObservableObject {
 
     func generateSpeech(text: String, profile: VoiceProfile?, completion: @escaping (URL?) -> Void) {
         isGenerating = true
+        lastError = nil
         statusMessage = "Génération..."
 
         switch config.provider {
@@ -780,7 +782,8 @@ class VoiceManager: ObservableObject {
                 } else {
                     DispatchQueue.main.async {
                         self.isGenerating = false
-                        self.statusMessage = "Serveur Qwen en cours de démarrage... Réessaie dans 30 sec."
+                        self.lastError = "Serveur Qwen en cours de démarrage... Réessaie dans 30 sec."
+                        self.statusMessage = ""
                     }
                     completion(nil)
                 }
@@ -868,10 +871,28 @@ class VoiceManager: ObservableObject {
 
         URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
             DispatchQueue.main.async { self?.isGenerating = false }
-            guard let data = data, error == nil,
+            if let error = error {
+                DispatchQueue.main.async {
+                    self?.lastError = "Erreur réseau : \(error.localizedDescription)"
+                    self?.statusMessage = ""
+                }
+                completion(nil)
+                return
+            }
+            guard let data = data,
                   let httpResponse = response as? HTTPURLResponse,
                   httpResponse.statusCode == 200 else {
-                DispatchQueue.main.async { self?.statusMessage = "Erreur serveur local (lance install-local-tts.sh)" }
+                let errorMsg: String
+                if let data = data, let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let errStr = json["error"] as? String {
+                    errorMsg = errStr
+                } else {
+                    errorMsg = "Erreur serveur local (HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0))"
+                }
+                DispatchQueue.main.async {
+                    self?.lastError = errorMsg
+                    self?.statusMessage = ""
+                }
                 completion(nil)
                 return
             }
@@ -880,6 +901,7 @@ class VoiceManager: ObservableObject {
                 try? data.write(to: outputURL)
                 DispatchQueue.main.async {
                     self?.lastGeneratedURL = outputURL
+                    self?.lastError = nil
                     self?.statusMessage = "Mémo généré !"
                 }
                 completion(outputURL)
@@ -961,10 +983,21 @@ class VoiceManager: ObservableObject {
 
         URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
             DispatchQueue.main.async { self?.isGenerating = false }
-            guard let data = data, error == nil,
+            if let error = error {
+                DispatchQueue.main.async {
+                    self?.lastError = "Erreur réseau : \(error.localizedDescription)"
+                    self?.statusMessage = ""
+                }
+                completion(nil)
+                return
+            }
+            guard let data = data,
                   let httpResponse = response as? HTTPURLResponse,
                   httpResponse.statusCode == 200 else {
-                DispatchQueue.main.async { self?.statusMessage = "Erreur Fish Audio" }
+                DispatchQueue.main.async {
+                    self?.lastError = "Erreur Fish Audio (HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0))"
+                    self?.statusMessage = ""
+                }
                 completion(nil)
                 return
             }
@@ -973,6 +1006,7 @@ class VoiceManager: ObservableObject {
                 try? data.write(to: outputURL)
                 DispatchQueue.main.async {
                     self?.lastGeneratedURL = outputURL
+                    self?.lastError = nil
                     self?.statusMessage = "Mémo généré !"
                 }
                 completion(outputURL)
@@ -1052,8 +1086,19 @@ class VoiceManager: ObservableObject {
         URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
             DispatchQueue.main.async { self?.isGenerating = false }
 
-            guard let data = data, error == nil else {
-                DispatchQueue.main.async { self?.statusMessage = "Erreur réseau" }
+            if let error = error {
+                DispatchQueue.main.async {
+                    self?.lastError = "Erreur réseau : \(error.localizedDescription)"
+                    self?.statusMessage = ""
+                }
+                completion(nil)
+                return
+            }
+            guard let data = data else {
+                DispatchQueue.main.async {
+                    self?.lastError = "Pas de données reçues"
+                    self?.statusMessage = ""
+                }
                 completion(nil)
                 return
             }
@@ -1098,7 +1143,10 @@ class VoiceManager: ObservableObject {
                 return
             }
 
-            DispatchQueue.main.async { self?.statusMessage = "Erreur API Qwen" }
+            DispatchQueue.main.async {
+                self?.lastError = "Erreur API Qwen : réponse inattendue"
+                self?.statusMessage = ""
+            }
             completion(nil)
         }.resume()
     }
@@ -1164,10 +1212,21 @@ class VoiceManager: ObservableObject {
 
         URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
             DispatchQueue.main.async { self?.isGenerating = false }
-            guard let data = data, error == nil,
+            if let error = error {
+                DispatchQueue.main.async {
+                    self?.lastError = "Erreur réseau : \(error.localizedDescription)"
+                    self?.statusMessage = ""
+                }
+                completion(nil)
+                return
+            }
+            guard let data = data,
                   let httpResponse = response as? HTTPURLResponse,
                   httpResponse.statusCode == 200 else {
-                DispatchQueue.main.async { self?.statusMessage = "Erreur ElevenLabs" }
+                DispatchQueue.main.async {
+                    self?.lastError = "Erreur ElevenLabs (HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0))"
+                    self?.statusMessage = ""
+                }
                 completion(nil)
                 return
             }
@@ -1176,6 +1235,7 @@ class VoiceManager: ObservableObject {
                 try? data.write(to: outputURL)
                 DispatchQueue.main.async {
                     self?.lastGeneratedURL = outputURL
+                    self?.lastError = nil
                     self?.statusMessage = "Mémo généré !"
                 }
                 completion(outputURL)
@@ -1206,10 +1266,21 @@ class VoiceManager: ObservableObject {
 
         URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
             DispatchQueue.main.async { self?.isGenerating = false }
-            guard let data = data, error == nil,
+            if let error = error {
+                DispatchQueue.main.async {
+                    self?.lastError = "Erreur réseau : \(error.localizedDescription)"
+                    self?.statusMessage = ""
+                }
+                completion(nil)
+                return
+            }
+            guard let data = data,
                   let httpResponse = response as? HTTPURLResponse,
                   httpResponse.statusCode == 200 else {
-                DispatchQueue.main.async { self?.statusMessage = "Erreur OpenAI" }
+                DispatchQueue.main.async {
+                    self?.lastError = "Erreur OpenAI (HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0))"
+                    self?.statusMessage = ""
+                }
                 completion(nil)
                 return
             }
@@ -1218,6 +1289,7 @@ class VoiceManager: ObservableObject {
                 try? data.write(to: outputURL)
                 DispatchQueue.main.async {
                     self?.lastGeneratedURL = outputURL
+                    self?.lastError = nil
                     self?.statusMessage = "Mémo généré !"
                 }
                 completion(outputURL)
@@ -1241,10 +1313,12 @@ class VoiceManager: ObservableObject {
                 self?.isGenerating = false
                 if FileManager.default.fileExists(atPath: outputURL.path) {
                     self?.lastGeneratedURL = outputURL
+                    self?.lastError = nil
                     self?.statusMessage = "Mémo généré !"
                     completion(outputURL)
                 } else {
-                    self?.statusMessage = "Erreur système"
+                    self?.lastError = "Erreur voix système macOS"
+                    self?.statusMessage = ""
                     completion(nil)
                 }
             }
