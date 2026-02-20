@@ -51,7 +51,7 @@ struct VoiceConfig: Codable {
     var systemVoice: String
 
     init() {
-        self.provider = .fish
+        self.provider = .qwen
         self.fishKey = ""
         self.fishVoiceId = ""
         self.qwenKey = ""
