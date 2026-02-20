@@ -22,8 +22,10 @@ fi
 
 export PATH="$HOME/miniconda3/bin:$PATH"
 
-# 2. Conda env
+# 2. Accept TOS + Conda env
 echo "[2/5] Environnement Python..."
+conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main 2>/dev/null || true
+conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r 2>/dev/null || true
 conda create -n vcm python=3.11 -y 2>/dev/null || true
 conda activate vcm
 
