@@ -76,6 +76,34 @@ enum LocalModelStatus {
     case ready
 }
 
+// MARK: - History Entry
+
+struct HistoryEntry: Identifiable, Codable {
+    let id: UUID
+    let date: Date
+    let text: String
+    let voiceName: String
+    let tone: String
+    let audioPath: String
+
+    var formattedDate: String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .short
+        formatter.timeStyle = .short
+        formatter.locale = Locale(identifier: "fr_FR")
+        return formatter.string(from: date)
+    }
+
+    init(text: String, voiceName: String, tone: String, audioPath: String) {
+        self.id = UUID()
+        self.date = Date()
+        self.text = text
+        self.voiceName = voiceName
+        self.tone = tone
+        self.audioPath = audioPath
+    }
+}
+
 class VoiceManager: ObservableObject {
     @Published var config: VoiceConfig
     @Published var voiceProfiles: [VoiceProfile] = []
@@ -88,10 +116,13 @@ class VoiceManager: ObservableObject {
     @Published var localServerRunning = false
     @Published var installProgress: Double = 0
     @Published var installStep: String = ""
+    @Published var history: [HistoryEntry] = []
 
     let recorder = AudioRecorder()
     private let configFile: URL
     private let profilesFile: URL
+    private let historyDir: URL
+    private let historyFile: URL
     let outputDir: URL
     private var cancellables = Set<AnyCancellable>()
 
@@ -110,8 +141,11 @@ class VoiceManager: ObservableObject {
 
         configFile = appDir.appendingPathComponent("config.json")
         profilesFile = appDir.appendingPathComponent("profiles.json")
+        historyDir = appDir.appendingPathComponent("history")
+        historyFile = historyDir.appendingPathComponent("history.json")
         outputDir = appDir.appendingPathComponent("memos")
         try? FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(at: historyDir, withIntermediateDirectories: true)
 
         if let data = try? Data(contentsOf: configFile),
            let saved = try? JSONDecoder().decode(VoiceConfig.self, from: data) {
@@ -123,6 +157,11 @@ class VoiceManager: ObservableObject {
         if let data = try? Data(contentsOf: profilesFile),
            let saved = try? JSONDecoder().decode([VoiceProfile].self, from: data) {
             voiceProfiles = saved
+        }
+
+        if let data = try? Data(contentsOf: historyFile),
+           let saved = try? JSONDecoder().decode([HistoryEntry].self, from: data) {
+            history = saved
         }
 
         // Forward recorder changes to trigger SwiftUI view updates
@@ -470,6 +509,28 @@ class VoiceManager: ObservableObject {
     func saveProfiles() {
         if let data = try? JSONEncoder().encode(voiceProfiles) {
             try? data.write(to: profilesFile)
+        }
+    }
+
+    // MARK: - History
+
+    func addHistoryEntry(text: String, voiceName: String, tone: String, audioPath: String) {
+        let entry = HistoryEntry(text: text, voiceName: voiceName, tone: tone, audioPath: audioPath)
+        history.append(entry)
+        saveHistory()
+    }
+
+    func removeHistoryEntry(_ id: UUID) {
+        if let entry = history.first(where: { $0.id == id }) {
+            try? FileManager.default.removeItem(atPath: entry.audioPath)
+        }
+        history.removeAll { $0.id == id }
+        saveHistory()
+    }
+
+    func saveHistory() {
+        if let data = try? JSONEncoder().encode(history) {
+            try? data.write(to: historyFile)
         }
     }
 

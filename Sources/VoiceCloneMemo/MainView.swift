@@ -7,13 +7,19 @@ enum TTSTone: String, CaseIterable {
     case joyful = "Joyeux"
     case serious = "Sérieux"
     case whispered = "Chuchoté"
+    case hesitant = "Hésitant"
+    case calm = "Calme"
+    case energetic = "Énergique"
 
     var instruction: String? {
         switch self {
         case .normal: return nil
-        case .joyful: return "Speak with a joyful, happy and enthusiastic tone."
-        case .serious: return "Speak with a serious, formal and composed tone."
-        case .whispered: return "Speak in a soft whisper, very quiet and intimate."
+        case .joyful: return "Speak with a happy, cheerful tone"
+        case .serious: return "Speak with a serious, professional tone"
+        case .whispered: return "Speak in a soft whisper"
+        case .hesitant: return "Speak with natural hesitations and uncertainty"
+        case .calm: return "Speak calmly and softly"
+        case .energetic: return "Speak with energy and enthusiasm"
         }
     }
 
@@ -23,6 +29,9 @@ enum TTSTone: String, CaseIterable {
         case .joyful: return "face.smiling"
         case .serious: return "briefcase"
         case .whispered: return "ear"
+        case .hesitant: return "questionmark.circle"
+        case .calm: return "leaf"
+        case .energetic: return "bolt.fill"
         }
     }
 }
@@ -47,6 +56,8 @@ struct MainView: View {
     @State private var ytVoiceName = ""
     @State private var pendingModelSize: String = ""
     @State private var modelSizeChanged = false
+    @State private var naturalSpeechMode = false
+    @State private var showRecordingGuide = false
 
     // MARK: - Text Stats (computed)
 
@@ -63,6 +74,12 @@ struct MainView: View {
     private var estimatedAudioSeconds: Int {
         guard wordCount > 0 else { return 0 }
         return max(1, Int(round(Double(wordCount) / 150.0 * 60.0)))
+    }
+
+    private var charCountColor: Color {
+        if charCount < 500 { return .green }
+        if charCount <= 1000 { return .orange }
+        return .red
     }
 
     private var detectedLanguage: (code: String, label: String)? {
@@ -121,6 +138,7 @@ struct MainView: View {
                 Picker("", selection: $currentTab) {
                     Text("Générer").tag(0)
                     Text("Voix").tag(1)
+                    Text("Historique").tag(2)
                 }
                 .pickerStyle(.segmented)
                 .padding(.horizontal)
@@ -128,8 +146,10 @@ struct MainView: View {
 
                 if currentTab == 0 {
                     generateTab
-                } else {
+                } else if currentTab == 1 {
                     voicesTab
+                } else {
+                    historyTab
                 }
             }
         }
@@ -157,8 +177,8 @@ struct MainView: View {
                 .padding(.horizontal)
             }
 
-            // Tone selector
-            HStack(spacing: 6) {
+            // Tone selector + natural speech toggle
+            HStack(spacing: 8) {
                 Text("Ton :")
                     .font(.caption)
                     .foregroundColor(.secondary)
@@ -167,8 +187,22 @@ struct MainView: View {
                         Label(tone.rawValue, systemImage: tone.icon).tag(tone)
                     }
                 }
-                .pickerStyle(.segmented)
                 .labelsHidden()
+                .frame(width: 130)
+
+                Spacer()
+
+                Toggle(isOn: $naturalSpeechMode) {
+                    HStack(spacing: 3) {
+                        Image(systemName: "text.bubble")
+                            .font(.system(size: 10))
+                        Text("Naturel")
+                            .font(.system(size: 11))
+                    }
+                }
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+                .help("Injecte des hésitations naturelles (euh..., hm..., enfin...)")
             }
             .padding(.horizontal)
 
@@ -182,25 +216,26 @@ struct MainView: View {
             // Text stats
             if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 HStack(spacing: 6) {
-                    Text("\(charCount) caractères · \(wordCount) mots")
+                    Text("\(charCount) caractères")
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(charCountColor)
 
                     Text("·")
                         .font(.caption)
                         .foregroundColor(.secondary.opacity(0.5))
 
-                    Text("~\(estimatedAudioSeconds) sec d'audio")
+                    Text("~\(estimatedAudioSeconds)s d'audio")
                         .font(.caption)
                         .foregroundColor(.secondary)
 
                     if let lang = detectedLanguage {
-                        Text("·")
-                            .font(.caption)
-                            .foregroundColor(.secondary.opacity(0.5))
-                        Text("\(lang.label) détecté")
-                            .font(.caption)
-                            .foregroundColor(.accentColor.opacity(0.8))
+                        Text(lang.label)
+                            .font(.system(size: 9, weight: .bold))
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 2)
+                            .background(Color.accentColor.opacity(0.15))
+                            .foregroundColor(.accentColor)
+                            .clipShape(Capsule())
                     }
 
                     Spacer()
@@ -461,27 +496,32 @@ struct MainView: View {
                     .padding(.horizontal)
                 }
 
-                // Recording state: full-width red bar
+                // Recording state: color-coded indicator
                 if voiceManager.recorder.isRecording {
                     VStack(spacing: 8) {
                         HStack(spacing: 10) {
                             Circle()
-                                .fill(Color.red)
+                                .fill(recordingIndicatorColor)
                                 .frame(width: 12, height: 12)
-                                .opacity(voiceManager.recorder.isPulsing ? 1.0 : 0.3)
+                                .opacity(voiceManager.recorder.isPulsing && voiceManager.recorder.recordingTime < 3 ? (voiceManager.recorder.isPulsing ? 1.0 : 0.3) : 1.0)
                                 .animation(.easeInOut(duration: 0.4), value: voiceManager.recorder.isPulsing)
-                            Text("Enregistrement en cours")
-                                .font(.system(size: 13, weight: .semibold))
-                                .foregroundColor(.red)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Enregistrement en cours")
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundColor(recordingIndicatorColor)
+                                Text(recordingGuideText)
+                                    .font(.system(size: 10))
+                                    .foregroundColor(recordingIndicatorColor.opacity(0.8))
+                            }
                             Spacer()
                             Text(String(format: "%.0fs", voiceManager.recorder.recordingTime))
                                 .font(.system(size: 24, weight: .bold, design: .rounded))
-                                .foregroundColor(.red)
+                                .foregroundColor(recordingIndicatorColor)
                                 .monospacedDigit()
                         }
                         .padding(12)
-                        .background(RoundedRectangle(cornerRadius: 10).fill(Color.red.opacity(0.08)))
-                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.red.opacity(0.3), lineWidth: 1))
+                        .background(RoundedRectangle(cornerRadius: 10).fill(recordingIndicatorColor.opacity(0.08)))
+                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(recordingIndicatorColor.opacity(0.3), lineWidth: 1))
 
                         Button(action: {
                             voiceManager.recorder.stopRecording()
@@ -521,6 +561,32 @@ struct MainView: View {
                             }
                         }
                         .buttonStyle(.plain)
+
+                        // Recording guide button
+                        Button(action: { showRecordingGuide.toggle() }) {
+                            Image(systemName: "questionmark.circle")
+                                .font(.system(size: 16))
+                                .foregroundColor(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .popover(isPresented: $showRecordingGuide) {
+                            VStack(alignment: .leading, spacing: 10) {
+                                Text("Guide d'enregistrement")
+                                    .font(.system(size: 13, weight: .bold))
+                                Text("Pour un clonage optimal :")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.secondary)
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Label("Parle naturellement pendant 10-15 secondes", systemImage: "timer")
+                                    Label("Évite le bruit de fond", systemImage: "speaker.slash")
+                                    Label("Dis ce que tu veux, l'important c'est le ton", systemImage: "waveform")
+                                }
+                                .font(.system(size: 11))
+                                .foregroundColor(.primary)
+                            }
+                            .padding(14)
+                            .frame(width: 260)
+                        }
 
                         Spacer()
 
@@ -1009,12 +1075,150 @@ struct MainView: View {
         }
     }
 
+    // MARK: - Recording Indicator Helpers
+
+    private var recordingIndicatorColor: Color {
+        let t = voiceManager.recorder.recordingTime
+        if t < 3 { return .red }
+        if t <= 15 { return .green }
+        return .orange
+    }
+
+    private var recordingGuideText: String {
+        let t = voiceManager.recorder.recordingTime
+        if t < 3 { return "Trop court" }
+        if t <= 15 { return "Parfait !" }
+        return "Suffisant"
+    }
+
+    // MARK: - Natural Speech Helper
+
+    private func injectFillers(_ input: String) -> String {
+        let fillers = ["euh...", "hm...", "enfin...", "tu vois...", "disons..."]
+        // Split into sentences
+        var sentences = input.components(separatedBy: ". ")
+        for i in 0..<sentences.count {
+            let sentence = sentences[i]
+            let words = sentence.components(separatedBy: " ")
+            guard words.count > 3 else { continue }
+            // Insert 1-2 fillers randomly within the sentence
+            var mutableWords = words
+            let insertCount = Int.random(in: 1...min(2, max(1, words.count / 4)))
+            for _ in 0..<insertCount {
+                let pos = Int.random(in: 1..<mutableWords.count)
+                let filler = fillers.randomElement()!
+                mutableWords.insert(filler, at: pos)
+            }
+            sentences[i] = mutableWords.joined(separator: " ")
+        }
+        // Add pauses between some sentences
+        var result: [String] = []
+        for (i, sentence) in sentences.enumerated() {
+            result.append(sentence)
+            if i < sentences.count - 1 && Bool.random() {
+                result.append("...")
+            }
+        }
+        return result.joined(separator: ". ")
+    }
+
+    // MARK: - History Tab
+
+    var historyTab: some View {
+        VStack(spacing: 8) {
+            if voiceManager.history.isEmpty {
+                Spacer()
+                VStack(spacing: 8) {
+                    Image(systemName: "clock.arrow.circlepath")
+                        .font(.largeTitle)
+                        .foregroundColor(.secondary)
+                    Text("Aucune génération")
+                        .foregroundColor(.secondary)
+                    Text("Les mémos vocaux générés apparaîtront ici")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                Spacer()
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 4) {
+                        ForEach(voiceManager.history.reversed()) { entry in
+                            HStack(spacing: 8) {
+                                // Play button
+                                Button(action: {
+                                    let url = URL(fileURLWithPath: entry.audioPath)
+                                    if FileManager.default.fileExists(atPath: entry.audioPath) {
+                                        audioPlayer.load(url: url)
+                                        audioPlayer.play()
+                                    }
+                                }) {
+                                    Image(systemName: "play.circle.fill")
+                                        .font(.title3)
+                                        .foregroundColor(.accentColor)
+                                }
+                                .buttonStyle(.plain)
+
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(entry.text.prefix(60) + (entry.text.count > 60 ? "..." : ""))
+                                        .font(.system(size: 12))
+                                        .lineLimit(2)
+                                    HStack(spacing: 4) {
+                                        Text(entry.formattedDate)
+                                            .font(.system(size: 9))
+                                            .foregroundColor(.secondary)
+                                        if !entry.voiceName.isEmpty {
+                                            Text("·")
+                                                .font(.system(size: 9))
+                                                .foregroundColor(.secondary.opacity(0.5))
+                                            Text(entry.voiceName)
+                                                .font(.system(size: 9))
+                                                .foregroundColor(.secondary)
+                                        }
+                                        if entry.tone != "Normal" {
+                                            Text("·")
+                                                .font(.system(size: 9))
+                                                .foregroundColor(.secondary.opacity(0.5))
+                                            Text(entry.tone)
+                                                .font(.system(size: 9))
+                                                .foregroundColor(.accentColor.opacity(0.8))
+                                        }
+                                    }
+                                }
+
+                                Spacer()
+
+                                Button(action: { voiceManager.removeHistoryEntry(entry.id) }) {
+                                    Image(systemName: "trash")
+                                        .font(.caption)
+                                        .foregroundColor(.red.opacity(0.7))
+                                }
+                                .buttonStyle(.plain)
+                            }
+                            .padding(.horizontal)
+                            .padding(.vertical, 5)
+                        }
+                    }
+                }
+            }
+        }
+        .padding(.top, 8)
+    }
+
     // MARK: - Actions
 
     func generate() {
-        voiceManager.generateSpeech(text: text, profile: selectedProfile, tone: selectedTone) { url in
-            // Notification is sent from AppDelegate via observation
-            // Audio auto-play is handled by onChange(of: voiceManager.lastGeneratedURL)
+        let finalText = naturalSpeechMode ? injectFillers(text) : text
+        let voiceName = selectedProfile?.name ?? "Par défaut"
+        voiceManager.generateSpeech(text: finalText, profile: selectedProfile, tone: selectedTone) { [self] url in
+            // Save to history
+            if let url = url {
+                voiceManager.addHistoryEntry(
+                    text: text,
+                    voiceName: voiceName,
+                    tone: selectedTone.rawValue,
+                    audioPath: url.path
+                )
+            }
         }
     }
 
