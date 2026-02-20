@@ -177,18 +177,54 @@ struct MainView: View {
                 .padding(.horizontal)
             }
 
-            // Tone selector + natural speech toggle
-            HStack(spacing: 8) {
-                Text("Ton :")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                Picker("", selection: $selectedTone) {
-                    ForEach(TTSTone.allCases, id: \.self) { tone in
-                        Label(tone.rawValue, systemImage: tone.icon).tag(tone)
-                    }
+            // Model badge + selector
+            HStack(spacing: 6) {
+                HStack(spacing: 3) {
+                    Image(systemName: "cpu")
+                        .font(.system(size: 9))
+                    Text(voiceManager.config.localModelSize == "1.7b" ? "1.7B" : voiceManager.config.localModelSize == "0.6b" ? "0.6B" : "Auto")
+                        .font(.system(size: 9, weight: .semibold))
+                }
+                .padding(.horizontal, 6)
+                .padding(.vertical, 3)
+                .background(Color.accentColor.opacity(0.12))
+                .foregroundColor(.accentColor)
+                .clipShape(Capsule())
+
+                Picker("", selection: $voiceManager.config.localModelSize) {
+                    Text("Auto").tag("auto")
+                    Text("0.6B (leger)").tag("0.6b")
+                    Text("1.7B (qualite)").tag("1.7b")
                 }
                 .labelsHidden()
-                .frame(width: 130)
+                .frame(width: 110)
+                .font(.caption)
+                .onChange(of: voiceManager.config.localModelSize) { _ in
+                    voiceManager.saveConfig()
+                }
+
+                Spacer()
+            }
+            .padding(.horizontal)
+
+            // Tone selector + natural speech toggle
+            HStack(spacing: 8) {
+                if voiceManager.config.localModelSize == "1.7b" || voiceManager.config.provider != .local {
+                    Text("Ton :")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Picker("", selection: $selectedTone) {
+                        ForEach(TTSTone.allCases, id: \.self) { tone in
+                            Label(tone.rawValue, systemImage: tone.icon).tag(tone)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 130)
+                } else {
+                    Text("Tonalite : modele 1.7B+ requis")
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary)
+                }
 
                 Spacer()
 
