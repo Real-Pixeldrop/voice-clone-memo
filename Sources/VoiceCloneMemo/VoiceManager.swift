@@ -4,7 +4,7 @@ import AVFoundation
 import UniformTypeIdentifiers
 
 enum TTSProvider: String, Codable, CaseIterable {
-    case local = "Qwen3 Local (offline)"
+    case local = "Qwen3 Local"
     case fish = "Fish Audio"
     case qwen = "Qwen3 (Alibaba)"
     case elevenLabs = "ElevenLabs"
@@ -31,7 +31,7 @@ enum TTSProvider: String, Codable, CaseIterable {
 
     var description: String {
         switch self {
-        case .local: return "Gratuit, offline, tourne sur ton Mac"
+        case .local: return "Gratuit, 100% sur ton Mac, pas besoin d'internet"
         case .fish: return "Clonage vocal gratuit (1h/mois), ultra réaliste"
         case .qwen: return "Clonage vocal, gratuit 500k tokens/mois"
         case .elevenLabs: return "Clonage vocal, très réaliste"

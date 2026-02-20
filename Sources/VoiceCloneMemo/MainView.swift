@@ -448,9 +448,9 @@ struct MainView: View {
                             // Server status
                             HStack(spacing: 6) {
                                 Circle()
-                                    .fill(voiceManager.localServerRunning ? Color.green : Color.orange)
+                                    .fill(voiceManager.localServerRunning ? Color.green : Color.gray)
                                     .frame(width: 8, height: 8)
-                                Text(voiceManager.localServerRunning ? "Serveur actif" : "Serveur arrêté (démarre auto)")
+                                Text(voiceManager.localServerRunning ? "Serveur actif, prêt à générer" : "Serveur en veille (se lance automatiquement)")
                                     .font(.caption2)
                                     .foregroundColor(.secondary)
                             }
@@ -572,7 +572,7 @@ struct MainView: View {
                         HStack(spacing: 8) {
                             Image(systemName: "checkmark.circle.fill")
                                 .foregroundColor(.green)
-                            Text("À jour (v4.2.0)")
+                            Text("À jour (v4.2.1)")
                                 .font(.system(size: 13))
                                 .foregroundColor(.secondary)
                         }
