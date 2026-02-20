@@ -360,9 +360,9 @@ def text_to_speech():
         if instruction:
             prompt = f"[{instruction}] {text}"
         if ref_audio_path:
-            wavs, sr = model.generate_voice_clone(text=prompt, language="Auto", ref_audio=ref_audio_path, ref_text=ref_text or "")
+            wavs, sr = model.generate_voice_clone(text=prompt, language="Auto", ref_audio=ref_audio_path, ref_text=ref_text)
         else:
-            wavs, sr = model.generate_voice_clone(text=prompt, language="Auto", ref_audio="", ref_text="", x_vector_only_mode=True)
+            wavs, sr = model.generate_voice_clone(text=prompt, language="Auto", ref_audio=None, ref_text=None, x_vector_only_mode=True)
         output_path = os.path.join(OUTPUT_DIR, f"memo_{int(time.time())}.wav")
         sf.write(output_path, wavs[0], sr)
         return send_file(output_path, mimetype="audio/wav")
