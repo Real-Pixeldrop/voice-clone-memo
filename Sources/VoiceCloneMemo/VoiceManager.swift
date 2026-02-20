@@ -4,6 +4,7 @@ import AVFoundation
 import UniformTypeIdentifiers
 
 enum TTSProvider: String, Codable, CaseIterable {
+    case local = "Qwen3 Local (offline)"
     case fish = "Fish Audio"
     case qwen = "Qwen3 (Alibaba)"
     case elevenLabs = "ElevenLabs"
@@ -13,12 +14,13 @@ enum TTSProvider: String, Codable, CaseIterable {
     var needsApiKey: Bool {
         switch self {
         case .fish, .qwen, .elevenLabs, .openai: return true
-        case .system: return false
+        case .local, .system: return false
         }
     }
 
     var icon: String {
         switch self {
+        case .local: return "desktopcomputer"
         case .fish: return "fish"
         case .qwen: return "brain"
         case .elevenLabs: return "waveform"
@@ -29,6 +31,7 @@ enum TTSProvider: String, Codable, CaseIterable {
 
     var description: String {
         switch self {
+        case .local: return "Gratuit, offline, tourne sur ton Mac"
         case .fish: return "Clonage vocal gratuit (1h/mois), ultra réaliste"
         case .qwen: return "Clonage vocal, gratuit 500k tokens/mois"
         case .elevenLabs: return "Clonage vocal, très réaliste"
@@ -51,7 +54,7 @@ struct VoiceConfig: Codable {
     var systemVoice: String
 
     init() {
-        self.provider = .qwen
+        self.provider = .local
         self.fishKey = ""
         self.fishVoiceId = ""
         self.qwenKey = ""
@@ -131,6 +134,16 @@ class VoiceManager: ObservableObject {
         statusMessage = "Clonage en cours..."
 
         switch config.provider {
+        case .local:
+            cloneVoiceLocal(name: name, audioURL: destURL) { [weak self] voiceId in
+                DispatchQueue.main.async {
+                    let profile = VoiceProfile(name: name, audioFile: destURL.path, providerVoiceId: voiceId, provider: .local)
+                    self?.voiceProfiles.append(profile)
+                    self?.saveProfiles()
+                    self?.isCloning = false
+                    self?.statusMessage = voiceId != nil ? "Voix clonée !" : "Voix sauvegardée (clonage échoué)"
+                }
+            }
         case .fish:
             cloneVoiceFish(name: name, audioURL: destURL) { [weak self] voiceId in
                 DispatchQueue.main.async {
@@ -389,6 +402,8 @@ class VoiceManager: ObservableObject {
         statusMessage = "Génération..."
 
         switch config.provider {
+        case .local:
+            generateLocal(text: text, voiceId: profile?.providerVoiceId ?? "", completion: completion)
         case .fish:
             generateFish(text: text, voiceId: profile?.providerVoiceId ?? config.fishVoiceId, completion: completion)
         case .qwen:
@@ -400,6 +415,88 @@ class VoiceManager: ObservableObject {
         case .system:
             generateSystem(text: text, voice: config.systemVoice, completion: completion)
         }
+    }
+
+    // MARK: - Local Qwen3-TTS
+
+    private func cloneVoiceLocal(name: String, audioURL: URL, completion: @escaping (String?) -> Void) {
+        guard let url = URL(string: "http://localhost:5123/v1/clone") else {
+            completion(nil)
+            return
+        }
+
+        guard let audioData = try? Data(contentsOf: audioURL) else {
+            completion(nil)
+            return
+        }
+
+        let boundary = UUID().uuidString
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 120
+
+        var body = Data()
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"name\"\r\n\r\n".data(using: .utf8)!)
+        body.append("\(name)\r\n".data(using: .utf8)!)
+
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"audio\"; filename=\"voice.wav\"\r\n".data(using: .utf8)!)
+        body.append("Content-Type: audio/wav\r\n\r\n".data(using: .utf8)!)
+        body.append(audioData)
+        body.append("\r\n".data(using: .utf8)!)
+        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+        request.httpBody = body
+
+        URLSession.shared.dataTask(with: request) { data, _, error in
+            guard let data = data, error == nil,
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let voiceId = json["voice_id"] as? String else {
+                completion(nil)
+                return
+            }
+            completion(voiceId)
+        }.resume()
+    }
+
+    private func generateLocal(text: String, voiceId: String, completion: @escaping (URL?) -> Void) {
+        guard let url = URL(string: "http://localhost:5123/v1/tts") else {
+            DispatchQueue.main.async { self.isGenerating = false }
+            completion(nil)
+            return
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 120
+
+        var bodyDict: [String: Any] = ["text": text]
+        if !voiceId.isEmpty {
+            bodyDict["voice_id"] = voiceId
+        }
+        request.httpBody = try? JSONSerialization.data(withJSONObject: bodyDict)
+
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+            DispatchQueue.main.async { self?.isGenerating = false }
+            guard let data = data, error == nil,
+                  let httpResponse = response as? HTTPURLResponse,
+                  httpResponse.statusCode == 200 else {
+                DispatchQueue.main.async { self?.statusMessage = "Erreur serveur local (lance install-local-tts.sh)" }
+                completion(nil)
+                return
+            }
+            let outputURL = self?.outputDir.appendingPathComponent("memo_\(Int(Date().timeIntervalSince1970)).wav")
+            if let outputURL = outputURL {
+                try? data.write(to: outputURL)
+                DispatchQueue.main.async {
+                    self?.lastGeneratedURL = outputURL
+                    self?.statusMessage = "Mémo généré !"
+                }
+                completion(outputURL)
+            }
+        }.resume()
     }
 
     // MARK: - Fish Audio
@@ -768,6 +865,7 @@ class VoiceManager: ObservableObject {
 
     var isConfigured: Bool {
         switch config.provider {
+        case .local: return true
         case .fish: return !config.fishKey.isEmpty
         case .qwen: return !config.qwenKey.isEmpty
         case .elevenLabs: return !config.elevenLabsKey.isEmpty

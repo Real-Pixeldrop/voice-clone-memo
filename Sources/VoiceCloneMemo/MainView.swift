@@ -377,6 +377,21 @@ struct MainView: View {
                 }
 
                 switch voiceManager.config.provider {
+                case .local:
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Qwen3-TTS tourne sur ton Mac. Aucune clé nécessaire.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Text("Si pas encore installé, lance dans le terminal :")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Text("bash Scripts/install-local-tts.sh")
+                            .font(.system(size: 11, design: .monospaced))
+                            .padding(6)
+                            .background(Color.black.opacity(0.3))
+                            .cornerRadius(4)
+                    }
+
                 case .fish:
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Clé API Fish Audio")
