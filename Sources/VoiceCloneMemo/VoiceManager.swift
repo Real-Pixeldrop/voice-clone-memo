@@ -2,6 +2,7 @@ import Foundation
 import AppKit
 import AVFoundation
 import UniformTypeIdentifiers
+import Combine
 
 enum TTSProvider: String, Codable, CaseIterable {
     case local = "Qwen3 Local"
@@ -89,6 +90,7 @@ class VoiceManager: ObservableObject {
     private let configFile: URL
     private let profilesFile: URL
     let outputDir: URL
+    private var cancellables = Set<AnyCancellable>()
 
     var localModelStatusText: String {
         switch localModelStatus {
@@ -119,6 +121,14 @@ class VoiceManager: ObservableObject {
            let saved = try? JSONDecoder().decode([VoiceProfile].self, from: data) {
             voiceProfiles = saved
         }
+
+        // Forward recorder changes to trigger SwiftUI view updates
+        // (nested ObservableObjects don't propagate automatically)
+        recorder.objectWillChange.sink { [weak self] _ in
+            DispatchQueue.main.async {
+                self?.objectWillChange.send()
+            }
+        }.store(in: &cancellables)
 
         // Check local model status on launch
         checkLocalModelStatus()
