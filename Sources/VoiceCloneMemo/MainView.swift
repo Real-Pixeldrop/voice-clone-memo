@@ -9,6 +9,7 @@ struct MainView: View {
     @State private var selectedProfile: VoiceProfile?
     @State private var showSettings = false
     @State private var newVoiceName = ""
+    @State private var newVoiceTranscript = ""
     @State private var showNameInput = false
     @State private var showYouTube = false
     @State private var youtubeURL = ""
@@ -184,15 +185,32 @@ struct MainView: View {
             // Record new voice
             VStack(spacing: 8) {
                 if showNameInput {
-                    HStack {
+                    VStack(spacing: 6) {
                         TextField("Nom de la voix", text: $newVoiceName)
                             .textFieldStyle(.roundedBorder)
-                        Button("OK") {
-                            if !newVoiceName.isEmpty {
-                                voiceManager.addVoiceFromRecording(name: newVoiceName)
+                        TextField("Qu'as-tu dit ? (optionnel, améliore le clonage)", text: $newVoiceTranscript)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.caption)
+                        HStack {
+                            Button("Annuler") {
                                 newVoiceName = ""
+                                newVoiceTranscript = ""
                                 showNameInput = false
                             }
+                            .buttonStyle(.bordered)
+                            .font(.caption)
+                            Spacer()
+                            Button("Cloner cette voix") {
+                                if !newVoiceName.isEmpty {
+                                    voiceManager.addVoiceFromRecording(name: newVoiceName, transcript: newVoiceTranscript.isEmpty ? nil : newVoiceTranscript)
+                                    newVoiceName = ""
+                                    newVoiceTranscript = ""
+                                    showNameInput = false
+                                }
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .font(.caption)
+                            .disabled(newVoiceName.isEmpty)
                         }
                     }
                     .padding(.horizontal)
@@ -202,6 +220,7 @@ struct MainView: View {
                     // Record button
                     Button(action: {
                         if voiceManager.recorder.isRecording {
+                            voiceManager.recorder.stopRecording()
                             showNameInput = true
                         } else {
                             voiceManager.recorder.startRecording()

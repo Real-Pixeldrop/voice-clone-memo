@@ -53,6 +53,7 @@ def clone_voice():
         return jsonify({"error": "No audio file"}), 400
 
     name = request.form.get("name", f"voice_{int(time.time())}")
+    transcript = request.form.get("transcript", "")
     audio_file = request.files["audio"]
 
     voice_id = str(uuid.uuid4())[:8]
@@ -62,7 +63,7 @@ def clone_voice():
     audio_path = os.path.join(voice_dir, "reference.wav")
     audio_file.save(audio_path)
 
-    meta = {"name": name, "voice_id": voice_id, "audio": audio_path}
+    meta = {"name": name, "voice_id": voice_id, "audio": audio_path, "transcript": transcript}
     with open(os.path.join(voice_dir, "meta.json"), "w") as f:
         json.dump(meta, f)
 
@@ -84,12 +85,27 @@ def text_to_speech():
     try:
         if voice_id and os.path.exists(os.path.join(VOICES_DIR, voice_id, "reference.wav")):
             ref_audio = os.path.join(VOICES_DIR, voice_id, "reference.wav")
-            inputs = processor(
-                text=text,
-                audio=ref_audio,
-                return_tensors="pt",
-                trust_remote_code=True
-            )
+
+            # Load transcript if available (improves cloning quality)
+            ref_text = None
+            meta_path = os.path.join(VOICES_DIR, voice_id, "meta.json")
+            if os.path.exists(meta_path):
+                with open(meta_path) as mf:
+                    meta = json.load(mf)
+                    ref_text = meta.get("transcript", "")
+                    if not ref_text:
+                        ref_text = None
+
+            proc_kwargs = {
+                "text": text,
+                "audio": ref_audio,
+                "return_tensors": "pt",
+                "trust_remote_code": True
+            }
+            if ref_text:
+                proc_kwargs["reference_text"] = ref_text
+
+            inputs = processor(**proc_kwargs)
         else:
             inputs = processor(
                 text=text,

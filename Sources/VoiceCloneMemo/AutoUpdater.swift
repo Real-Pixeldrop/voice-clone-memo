@@ -9,7 +9,7 @@ class AutoUpdater: ObservableObject {
     @Published var updateError: String?
     @Published var isChecking = false
 
-    let currentVersion = "4.5.0"
+    let currentVersion = "4.6.0"
     private let repoOwner = "Real-Pixeldrop"
     private let repoName = "voice-clone-memo"
 

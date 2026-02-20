@@ -460,12 +460,12 @@ class VoiceManager: ObservableObject {
 
     // MARK: - Voice Profiles
 
-    func addVoiceFromRecording(name: String) {
-        guard let url = recorder.stopRecording() else { return }
-        addVoiceFromFile(name: name, sourceURL: url)
+    func addVoiceFromRecording(name: String, transcript: String? = nil) {
+        guard let url = recorder.lastRecordingURL else { return }
+        addVoiceFromFile(name: name, sourceURL: url, transcript: transcript)
     }
 
-    func addVoiceFromFile(name: String, sourceURL: URL) {
+    func addVoiceFromFile(name: String, sourceURL: URL, transcript: String? = nil) {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         let voicesDir = appSupport.appendingPathComponent("VoiceCloneMemo/voices")
         try? FileManager.default.createDirectory(at: voicesDir, withIntermediateDirectories: true)
@@ -482,7 +482,7 @@ class VoiceManager: ObservableObject {
             ensureLocalServerRunning { [weak self] serverReady in
                 guard let self = self else { return }
                 if serverReady {
-                    self.cloneVoiceLocal(name: name, audioURL: destURL) { [weak self] voiceId in
+                    self.cloneVoiceLocal(name: name, audioURL: destURL, transcript: transcript) { [weak self] voiceId in
                         DispatchQueue.main.async {
                             let profile = VoiceProfile(name: name, audioFile: destURL.path, providerVoiceId: voiceId, provider: .local)
                             self?.voiceProfiles.append(profile)
@@ -791,7 +791,7 @@ class VoiceManager: ObservableObject {
 
     // MARK: - Local Qwen3-TTS
 
-    private func cloneVoiceLocal(name: String, audioURL: URL, completion: @escaping (String?) -> Void) {
+    private func cloneVoiceLocal(name: String, audioURL: URL, transcript: String? = nil, completion: @escaping (String?) -> Void) {
         guard let url = URL(string: "http://localhost:5123/v1/clone") else {
             completion(nil)
             return
@@ -812,6 +812,12 @@ class VoiceManager: ObservableObject {
         body.append("--\(boundary)\r\n".data(using: .utf8)!)
         body.append("Content-Disposition: form-data; name=\"name\"\r\n\r\n".data(using: .utf8)!)
         body.append("\(name)\r\n".data(using: .utf8)!)
+
+        if let transcript = transcript {
+            body.append("--\(boundary)\r\n".data(using: .utf8)!)
+            body.append("Content-Disposition: form-data; name=\"transcript\"\r\n\r\n".data(using: .utf8)!)
+            body.append("\(transcript)\r\n".data(using: .utf8)!)
+        }
 
         body.append("--\(boundary)\r\n".data(using: .utf8)!)
         body.append("Content-Disposition: form-data; name=\"audio\"; filename=\"voice.wav\"\r\n".data(using: .utf8)!)

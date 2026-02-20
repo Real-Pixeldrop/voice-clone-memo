@@ -65,10 +65,15 @@ class AudioRecorder: NSObject, ObservableObject {
         }
     }
 
+    @discardableResult
     func stopRecording() -> URL? {
         audioRecorder?.stop()
         timer?.invalidate()
         isRecording = false
+        return currentRecordingURL
+    }
+
+    var lastRecordingURL: URL? {
         return currentRecordingURL
     }
 }
