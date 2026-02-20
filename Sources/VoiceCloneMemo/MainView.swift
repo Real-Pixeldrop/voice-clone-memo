@@ -250,60 +250,87 @@ struct MainView: View {
                     .padding(.horizontal)
                 }
 
-                HStack(spacing: 12) {
-                    // Record button
-                    Button(action: {
-                        if voiceManager.recorder.isRecording {
+                // Recording state: full-width red bar
+                if voiceManager.recorder.isRecording {
+                    VStack(spacing: 8) {
+                        HStack(spacing: 10) {
+                            Circle()
+                                .fill(Color.red)
+                                .frame(width: 12, height: 12)
+                                .opacity(voiceManager.recorder.recordingTime.truncatingRemainder(dividingBy: 1.0) < 0.5 ? 1.0 : 0.3)
+                                .animation(.easeInOut(duration: 0.5).repeatForever(autoreverses: true), value: voiceManager.recorder.recordingTime)
+                            Text("Enregistrement en cours")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundColor(.red)
+                            Spacer()
+                            Text(String(format: "%.1fs", voiceManager.recorder.recordingTime))
+                                .font(.system(size: 20, weight: .bold, design: .rounded))
+                                .foregroundColor(.red)
+                        }
+                        .padding(12)
+                        .background(RoundedRectangle(cornerRadius: 10).fill(Color.red.opacity(0.08)))
+                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.red.opacity(0.3), lineWidth: 1))
+
+                        Button(action: {
                             voiceManager.recorder.stopRecording()
                             showNameInput = true
-                        } else {
-                            voiceManager.recorder.startRecording()
+                        }) {
+                            HStack {
+                                Image(systemName: "stop.circle.fill")
+                                Text("Arrêter l'enregistrement")
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 6)
                         }
-                    }) {
-                        HStack {
-                            Image(systemName: voiceManager.recorder.isRecording ? "stop.circle.fill" : "mic.circle.fill")
-                                .font(.title2)
-                                .foregroundColor(voiceManager.recorder.isRecording ? .red : .accentColor)
-                            VStack(alignment: .leading) {
-                                Text(voiceManager.recorder.isRecording ? "Arrêter" : "Enregistrer ma voix")
-                                    .font(.system(size: 13, weight: .medium))
-                                if voiceManager.recorder.isRecording {
-                                    Text(String(format: "%.1fs", voiceManager.recorder.recordingTime))
-                                        .font(.caption)
-                                        .foregroundColor(.red)
-                                } else {
+                        .buttonStyle(.borderedProminent)
+                        .tint(.red)
+                    }
+                    .padding(.horizontal)
+                } else {
+                    // Normal state: record + import buttons
+                    HStack(spacing: 12) {
+                        Button(action: {
+                            voiceManager.recorder.startRecording()
+                        }) {
+                            HStack {
+                                Image(systemName: "mic.circle.fill")
+                                    .font(.title2)
+                                    .foregroundColor(.accentColor)
+                                VStack(alignment: .leading) {
+                                    Text("Enregistrer ma voix")
+                                        .font(.system(size: 13, weight: .medium))
                                     Text("10-20 sec recommandé")
                                         .font(.caption)
                                         .foregroundColor(.secondary)
                                 }
                             }
                         }
-                    }
-                    .buttonStyle(.plain)
+                        .buttonStyle(.plain)
 
-                    Spacer()
+                        Spacer()
 
-                    // Import button (audio or video)
-                    Button(action: { voiceManager.importFile() }) {
-                        HStack {
-                            Image(systemName: "square.and.arrow.down")
-                            Text("Fichier")
+                        // Import button (audio or video)
+                        Button(action: { voiceManager.importFile() }) {
+                            HStack {
+                                Image(systemName: "square.and.arrow.down")
+                                Text("Fichier")
+                            }
+                            .font(.caption)
                         }
-                        .font(.caption)
-                    }
-                    .buttonStyle(.bordered)
+                        .buttonStyle(.bordered)
 
-                    // YouTube button
-                    Button(action: { showYouTube.toggle() }) {
-                        HStack {
-                            Image(systemName: "play.rectangle")
-                            Text("YouTube")
+                        // YouTube button
+                        Button(action: { showYouTube.toggle() }) {
+                            HStack {
+                                Image(systemName: "play.rectangle")
+                                Text("YouTube")
+                            }
+                            .font(.caption)
                         }
-                        .font(.caption)
+                        .buttonStyle(.bordered)
                     }
-                    .buttonStyle(.bordered)
+                    .padding(.horizontal)
                 }
-                .padding(.horizontal)
             }
             .padding(.top, 8)
 
