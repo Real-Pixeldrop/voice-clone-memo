@@ -45,8 +45,16 @@ cp -r .build/release/VoiceCloneMemo.app /Applications/ 2>/dev/null || \
 ## One-liner install
 
 ```bash
-curl -sL https://github.com/Real-Pixeldrop/voice-clone-memo/releases/latest/download/VoiceCloneMemo.zip -o /tmp/vcm.zip && unzip -o /tmp/vcm.zip -d /Applications/ && open /Applications/VoiceCloneMemo.app
+curl -sL https://github.com/Real-Pixeldrop/voice-clone-memo/releases/latest/download/VoiceCloneMemo.zip -o /tmp/vcm.zip && unzip -o /tmp/vcm.zip -d /Applications/ && xattr -cr /Applications/VoiceCloneMemo.app && open /Applications/VoiceCloneMemo.app
 ```
+
+## macOS bloque l'app ?
+
+Si macOS dit "endommagé" ou refuse d'ouvrir, lance dans le terminal :
+```bash
+xattr -cr /Applications/VoiceCloneMemo.app
+```
+Puis double-clic. C'est normal pour les apps hors App Store.
 
 ## Requis
 
