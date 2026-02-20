@@ -220,7 +220,8 @@ class VoiceManager: ObservableObject {
 
         // Try ffmpeg first (better quality)
         DispatchQueue.global().async {
-            let ffmpegPaths = ["/usr/local/bin/ffmpeg", "/opt/homebrew/bin/ffmpeg"]
+            let homeBin = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("bin/ffmpeg").path
+            let ffmpegPaths = [homeBin, "/usr/local/bin/ffmpeg", "/opt/homebrew/bin/ffmpeg"]
             let ffmpegPath = ffmpegPaths.first { FileManager.default.fileExists(atPath: $0) }
 
             if let ffmpegPath = ffmpegPath {
@@ -259,7 +260,8 @@ class VoiceManager: ObservableObject {
             let tempClip = tempDir.appendingPathComponent("yt_clip.wav")
 
             // Find yt-dlp
-            let ytdlpPaths = ["/usr/local/bin/yt-dlp", "/opt/homebrew/bin/yt-dlp"]
+            let homeBinYt = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("bin/yt-dlp").path
+            let ytdlpPaths = [homeBinYt, "/usr/local/bin/yt-dlp", "/opt/homebrew/bin/yt-dlp"]
             guard let ytdlpPath = ytdlpPaths.first(where: { FileManager.default.fileExists(atPath: $0) }) else {
                 DispatchQueue.main.async {
                     self.isCloning = false
@@ -269,7 +271,8 @@ class VoiceManager: ObservableObject {
             }
 
             // Find ffmpeg
-            let ffmpegPaths = ["/usr/local/bin/ffmpeg", "/opt/homebrew/bin/ffmpeg"]
+            let homeBin2 = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("bin/ffmpeg").path
+            let ffmpegPaths = [homeBin2, "/usr/local/bin/ffmpeg", "/opt/homebrew/bin/ffmpeg"]
             guard let ffmpegPath = ffmpegPaths.first(where: { FileManager.default.fileExists(atPath: $0) }) else {
                 DispatchQueue.main.async {
                     self.isCloning = false
