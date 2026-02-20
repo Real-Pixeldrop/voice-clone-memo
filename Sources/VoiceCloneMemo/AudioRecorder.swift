@@ -21,23 +21,20 @@ class AudioRecorder: NSObject, ObservableObject {
     }
 
     func startRecording() {
-        // Check microphone permission
-        switch AVCaptureDevice.authorizationStatus(for: .audio) {
-        case .authorized:
+        // Permission is requested at app launch (AppDelegate).
+        // Here we just check status - no dialog will appear.
+        let status = AVCaptureDevice.authorizationStatus(for: .audio)
+        if status == .authorized {
             beginRecording()
-        case .notDetermined:
+        } else if status == .notDetermined {
+            // Shouldn't happen (requested at launch), but handle gracefully
             AVCaptureDevice.requestAccess(for: .audio) { [weak self] granted in
                 DispatchQueue.main.async {
-                    if granted {
-                        self?.beginRecording()
-                    } else {
-                        self?.permissionDenied = true
-                    }
+                    if granted { self?.beginRecording() }
+                    else { self?.permissionDenied = true }
                 }
             }
-        case .denied, .restricted:
-            permissionDenied = true
-        @unknown default:
+        } else {
             permissionDenied = true
         }
     }

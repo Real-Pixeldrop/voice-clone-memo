@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import AVFoundation
 import Combine
 
 @main
@@ -23,6 +24,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+
+        // Request microphone permission at launch (not when clicking record)
+        // This prevents the permission dialog from closing the popover
+        AVCaptureDevice.requestAccess(for: .audio) { _ in }
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
 
