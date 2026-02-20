@@ -122,16 +122,27 @@ class SetupManager: ObservableObject {
 
     private func installConda() -> String? {
         let home = FileManager.default.homeDirectoryForCurrentUser
-        let condaBin = home.appendingPathComponent("miniconda3/bin/conda").path
 
-        // Check if conda already exists
-        if FileManager.default.fileExists(atPath: condaBin) {
-            return condaBin
+        // Check common conda locations
+        let condaPaths = [
+            home.appendingPathComponent("miniconda3/bin/conda").path,
+            home.appendingPathComponent("anaconda3/bin/conda").path,
+            home.appendingPathComponent("miniforge3/bin/conda").path,
+            "/usr/local/bin/conda",
+            "/opt/homebrew/bin/conda"
+        ]
+
+        for path in condaPaths {
+            if FileManager.default.fileExists(atPath: path) {
+                return path
+            }
         }
 
-        // Check system conda
-        if shell("/usr/bin/which conda").status == 0 {
-            return "conda"
+        // Check system PATH
+        let whichResult = shell("/usr/bin/which conda")
+        if whichResult.status == 0 {
+            let path = whichResult.output.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !path.isEmpty { return path }
         }
 
         // Download and install Miniconda
@@ -149,6 +160,7 @@ class SetupManager: ObservableObject {
         guard dlResult.status == 0 else { return nil }
 
         updateUI(step: "Installation de Miniconda...", progress: 0.12)
+        let condaBin = home.appendingPathComponent("miniconda3/bin/conda").path
         let installResult = shell("/bin/bash /tmp/miniconda.sh -b -p \(home.path)/miniconda3")
         guard installResult.status == 0 else { return nil }
 
@@ -159,31 +171,43 @@ class SetupManager: ObservableObject {
     }
 
     private func createCondaEnv(conda: String) -> Bool {
-        // Check if env already exists
-        let result = shell("\(conda) env list")
+        let condaDir = URL(fileURLWithPath: conda).deletingLastPathComponent().deletingLastPathComponent()
+        let envDir = condaDir.appendingPathComponent("envs/vcm")
+
+        // Check if env already exists by looking at the directory
+        if FileManager.default.fileExists(atPath: envDir.appendingPathComponent("bin/python3").path) {
+            return true
+        }
+
+        // Also check via conda env list
+        let result = shell("\(conda) env list 2>/dev/null")
         if result.output.contains("vcm") {
             return true
         }
-        let create = shell("\(conda) create -n vcm python=3.11 -y")
+
+        let create = shell("\(conda) create -n vcm python=3.11 -y 2>&1")
         return create.status == 0
     }
 
     private func installDeps(conda: String) -> Bool {
-        let condaDir = URL(fileURLWithPath: conda).deletingLastPathComponent().deletingLastPathComponent()
-        let pip = condaDir.appendingPathComponent("envs/vcm/bin/pip").path
-
-        if !FileManager.default.fileExists(atPath: pip) {
-            // Try activating first
-            let result = shell("\(conda) run -n vcm pip install --quiet torch torchaudio flask soundfile scipy transformers accelerate huggingface_hub")
-            return result.status == 0
+        // Use conda run to ensure correct env
+        updateUI(step: "Installation de PyTorch (peut prendre quelques minutes)...", progress: 0.30)
+        let torch = shell("\(conda) run -n vcm pip install --quiet torch torchaudio 2>&1")
+        guard torch.status == 0 else {
+            // Fallback: try with full pip path
+            let condaDir = URL(fileURLWithPath: conda).deletingLastPathComponent().deletingLastPathComponent()
+            let pip = condaDir.appendingPathComponent("envs/vcm/bin/pip").path
+            if FileManager.default.fileExists(atPath: pip) {
+                let r = shell("\(pip) install --quiet torch torchaudio 2>&1")
+                guard r.status == 0 else { return false }
+            } else {
+                return false
+            }
+            return true
         }
 
-        updateUI(step: "Installation de PyTorch...", progress: 0.30)
-        let torch = shell("\(pip) install --quiet torch torchaudio")
-        guard torch.status == 0 else { return false }
-
         updateUI(step: "Installation des dépendances audio...", progress: 0.35)
-        let deps = shell("\(pip) install --quiet flask soundfile scipy transformers accelerate huggingface_hub")
+        let deps = shell("\(conda) run -n vcm pip install --quiet flask soundfile scipy transformers accelerate huggingface_hub 2>&1")
         return deps.status == 0
     }
 
@@ -192,9 +216,6 @@ class SetupManager: ObservableObject {
         if FileManager.default.fileExists(atPath: modelDir.appendingPathComponent("config.json").path) {
             return true
         }
-
-        let condaDir = URL(fileURLWithPath: conda).deletingLastPathComponent().deletingLastPathComponent()
-        let python = condaDir.appendingPathComponent("envs/vcm/bin/python3").path
 
         let script = """
         from huggingface_hub import snapshot_download
@@ -209,13 +230,9 @@ class SetupManager: ObservableObject {
         let task = Process()
         let outputPipe = Pipe()
 
-        if FileManager.default.fileExists(atPath: python) {
-            task.launchPath = python
-            task.arguments = [tempScript.path]
-        } else {
-            task.launchPath = "/bin/bash"
-            task.arguments = ["-c", "\(conda) run -n vcm python3 \(tempScript.path)"]
-        }
+        // Always use conda run for reliable env activation
+        task.launchPath = "/bin/bash"
+        task.arguments = ["-c", "\(conda) run -n vcm python3 \(tempScript.path) 2>&1"]
 
         task.standardOutput = outputPipe
         task.standardError = outputPipe
