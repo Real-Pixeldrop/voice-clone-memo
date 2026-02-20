@@ -67,6 +67,12 @@ struct VoiceConfig: Codable {
     }
 }
 
+enum LocalModelStatus {
+    case notInstalled
+    case installing
+    case ready
+}
+
 class VoiceManager: ObservableObject {
     @Published var config: VoiceConfig
     @Published var voiceProfiles: [VoiceProfile] = []
@@ -74,11 +80,23 @@ class VoiceManager: ObservableObject {
     @Published var isCloning = false
     @Published var lastGeneratedURL: URL?
     @Published var statusMessage: String = ""
+    @Published var localModelStatus: LocalModelStatus = .notInstalled
+    @Published var localServerRunning = false
+    @Published var installProgress: Double = 0
+    @Published var installStep: String = ""
 
     let recorder = AudioRecorder()
     private let configFile: URL
     private let profilesFile: URL
     let outputDir: URL
+
+    var localModelStatusText: String {
+        switch localModelStatus {
+        case .notInstalled: return "Qwen3-TTS non installé"
+        case .installing: return "Installation en cours..."
+        case .ready: return "Qwen3-TTS prêt"
+        }
+    }
 
     init() {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
@@ -101,6 +119,234 @@ class VoiceManager: ObservableObject {
            let saved = try? JSONDecoder().decode([VoiceProfile].self, from: data) {
             voiceProfiles = saved
         }
+
+        // Check local model status on launch
+        checkLocalModelStatus()
+    }
+
+    // MARK: - Local Model Status
+
+    func checkLocalModelStatus() {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let modelConfig = home.appendingPathComponent(".voiceclonememo/model/config.json")
+        let serverScript = home.appendingPathComponent(".voiceclonememo/server.py")
+        let startScript = home.appendingPathComponent(".voiceclonememo/start.sh")
+
+        if FileManager.default.fileExists(atPath: modelConfig.path) &&
+           FileManager.default.fileExists(atPath: serverScript.path) &&
+           FileManager.default.fileExists(atPath: startScript.path) {
+            localModelStatus = .ready
+            checkLocalServerStatus()
+        } else {
+            localModelStatus = .notInstalled
+        }
+    }
+
+    func checkLocalServerStatus() {
+        guard let url = URL(string: "http://localhost:5123/health") else { return }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 2
+        URLSession.shared.dataTask(with: request) { [weak self] data, _, _ in
+            DispatchQueue.main.async {
+                self?.localServerRunning = data != nil
+            }
+        }.resume()
+    }
+
+    func installLocalModel() {
+        localModelStatus = .installing
+        installProgress = 0
+        installStep = "Préparation..."
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            self?.runLocalInstall()
+        }
+    }
+
+    private func updateInstallUI(step: String, progress: Double) {
+        DispatchQueue.main.async { [weak self] in
+            self?.installStep = step
+            self?.installProgress = progress
+        }
+    }
+
+    private func runLocalInstall() {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let installDir = home.appendingPathComponent(".voiceclonememo")
+        try? FileManager.default.createDirectory(at: installDir, withIntermediateDirectories: true)
+
+        // Step 1: Find or install conda
+        updateInstallUI(step: "Recherche de Python/Conda...", progress: 0.05)
+        let condaPaths = [
+            home.appendingPathComponent("miniconda3/bin/conda").path,
+            home.appendingPathComponent("anaconda3/bin/conda").path,
+            home.appendingPathComponent("miniforge3/bin/conda").path,
+            "/usr/local/bin/conda",
+            "/opt/homebrew/bin/conda"
+        ]
+
+        var condaPath = condaPaths.first { FileManager.default.fileExists(atPath: $0) }
+
+        if condaPath == nil {
+            // Check PATH
+            let which = shellRun("/usr/bin/which conda")
+            if which.status == 0 {
+                let path = which.output.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !path.isEmpty && FileManager.default.fileExists(atPath: path) {
+                    condaPath = path
+                }
+            }
+        }
+
+        if condaPath == nil {
+            // Install miniconda
+            updateInstallUI(step: "Téléchargement de Miniconda...", progress: 0.08)
+            let arch = shellRun("/usr/bin/uname -m").output.trimmingCharacters(in: .whitespacesAndNewlines)
+            let url = arch == "arm64"
+                ? "https://repo.anaconda.com/miniconda/Miniconda3-latest-MacOSX-arm64.sh"
+                : "https://repo.anaconda.com/miniconda/Miniconda3-latest-MacOSX-x86_64.sh"
+
+            let dl = shellRun("/usr/bin/curl -sL \(url) -o /tmp/miniconda.sh")
+            guard dl.status == 0 else {
+                updateInstallUI(step: "Erreur : impossible de télécharger Miniconda", progress: 0)
+                DispatchQueue.main.async { self.localModelStatus = .notInstalled }
+                return
+            }
+
+            updateInstallUI(step: "Installation de Miniconda...", progress: 0.12)
+            let install = shellRun("/bin/bash /tmp/miniconda.sh -b -p \(home.path)/miniconda3")
+            guard install.status == 0 else {
+                updateInstallUI(step: "Erreur : installation Miniconda échouée", progress: 0)
+                DispatchQueue.main.async { self.localModelStatus = .notInstalled }
+                return
+            }
+            condaPath = home.appendingPathComponent("miniconda3/bin/conda").path
+            _ = shellRun("\(condaPath!) init bash zsh 2>/dev/null")
+        }
+
+        guard let conda = condaPath else {
+            updateInstallUI(step: "Erreur : conda introuvable", progress: 0)
+            DispatchQueue.main.async { self.localModelStatus = .notInstalled }
+            return
+        }
+
+        // Step 2: Create env
+        updateInstallUI(step: "Création de l'environnement Python...", progress: 0.15)
+        let envCheck = shellRun("\(conda) env list 2>/dev/null")
+        if !envCheck.output.contains("vcm") {
+            _ = shellRun("\(conda) tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main 2>&1")
+            let create = shellRun("\(conda) create -n vcm python=3.11 -y 2>&1")
+            guard create.status == 0 else {
+                updateInstallUI(step: "Erreur : création environnement échouée", progress: 0)
+                DispatchQueue.main.async { self.localModelStatus = .notInstalled }
+                return
+            }
+        }
+
+        // Step 3: Install deps
+        updateInstallUI(step: "Installation de PyTorch (quelques minutes)...", progress: 0.25)
+        let torch = shellRun("\(conda) run -n vcm pip install --quiet torch torchaudio 2>&1")
+        guard torch.status == 0 else {
+            updateInstallUI(step: "Erreur : installation PyTorch échouée", progress: 0)
+            DispatchQueue.main.async { self.localModelStatus = .notInstalled }
+            return
+        }
+
+        updateInstallUI(step: "Installation des dépendances audio...", progress: 0.35)
+        let deps = shellRun("\(conda) run -n vcm pip install --quiet flask soundfile scipy transformers accelerate huggingface_hub 2>&1")
+        guard deps.status == 0 else {
+            updateInstallUI(step: "Erreur : installation dépendances échouée", progress: 0)
+            DispatchQueue.main.async { self.localModelStatus = .notInstalled }
+            return
+        }
+
+        // Step 4: Download model
+        updateInstallUI(step: "Téléchargement du modèle Qwen3-TTS (~4 Go)...", progress: 0.40)
+        let modelDir = installDir.appendingPathComponent("model")
+        if !FileManager.default.fileExists(atPath: modelDir.appendingPathComponent("config.json").path) {
+            let dlScript = installDir.appendingPathComponent("dl_model.py")
+            let pyCode = "from huggingface_hub import snapshot_download\nsnapshot_download('Qwen/Qwen3-TTS-12Hz-1.7B-Base', local_dir='\(modelDir.path)')\nprint('OK')"
+            try? pyCode.write(to: dlScript, atomically: true, encoding: .utf8)
+
+            // Monitor progress in background
+            let progressTimer = DispatchSource.makeTimerSource(queue: .global())
+            progressTimer.schedule(deadline: .now(), repeating: 3.0)
+            progressTimer.setEventHandler { [weak self] in
+                let size = self?.directorySize(modelDir) ?? 0
+                let expected: UInt64 = 4_000_000_000
+                let pct = min(Double(size) / Double(expected), 0.99)
+                let overall = 0.40 + (pct * 0.48)
+                let mb = Double(size) / 1_000_000
+                let sizeStr = mb > 1000 ? String(format: "%.1f Go", mb / 1000) : String(format: "%.0f Mo", mb)
+                self?.updateInstallUI(step: "Téléchargement (\(sizeStr) / ~4 Go)...", progress: overall)
+            }
+            progressTimer.resume()
+
+            let dlResult = shellRun("\(conda) run -n vcm python3 \(dlScript.path) 2>&1")
+            progressTimer.cancel()
+            try? FileManager.default.removeItem(at: dlScript)
+
+            guard dlResult.status == 0 else {
+                updateInstallUI(step: "Erreur : téléchargement modèle échoué", progress: 0)
+                DispatchQueue.main.async { self.localModelStatus = .notInstalled }
+                return
+            }
+        }
+
+        // Step 5: Copy server.py
+        updateInstallUI(step: "Configuration du serveur...", progress: 0.92)
+        let serverPy = installDir.appendingPathComponent("server.py")
+        try? SetupManager.embeddedServerPy.write(to: serverPy, atomically: true, encoding: .utf8)
+
+        // Step 6: Create start script
+        updateInstallUI(step: "Finalisation...", progress: 0.96)
+        let condaDir = URL(fileURLWithPath: conda).deletingLastPathComponent().deletingLastPathComponent()
+        let startScript = installDir.appendingPathComponent("start.sh")
+        let bashScript = """
+        #!/bin/bash
+        export PATH="\(condaDir.path)/bin:$PATH"
+        eval "$(\(condaDir.path)/bin/conda shell.bash hook)"
+        conda activate vcm
+        python3 ~/.voiceclonememo/server.py
+        """
+        try? bashScript.write(to: startScript, atomically: true, encoding: .utf8)
+        _ = shellRun("/bin/chmod +x \(startScript.path)")
+
+        // Done!
+        DispatchQueue.main.async { [weak self] in
+            self?.installProgress = 1.0
+            self?.installStep = "Installation terminée !"
+            self?.localModelStatus = .ready
+        }
+    }
+
+    private func shellRun(_ command: String) -> (status: Int32, output: String) {
+        let task = Process()
+        let pipe = Pipe()
+        task.launchPath = "/bin/bash"
+        task.arguments = ["-c", command]
+        task.standardOutput = pipe
+        task.standardError = pipe
+        task.environment = ProcessInfo.processInfo.environment
+        do {
+            try task.run()
+            task.waitUntilExit()
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            return (task.terminationStatus, String(data: data, encoding: .utf8) ?? "")
+        } catch {
+            return (-1, "")
+        }
+    }
+
+    private func directorySize(_ url: URL) -> UInt64 {
+        guard let enumerator = FileManager.default.enumerator(at: url, includingPropertiesForKeys: [.fileSizeKey]) else { return 0 }
+        var total: UInt64 = 0
+        for case let fileURL as URL in enumerator {
+            if let size = try? fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize {
+                total += UInt64(size)
+            }
+        }
+        return total
     }
 
     func saveConfig() {

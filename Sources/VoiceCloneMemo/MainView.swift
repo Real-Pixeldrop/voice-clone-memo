@@ -390,18 +390,54 @@ struct MainView: View {
 
                 switch voiceManager.config.provider {
                 case .local:
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Qwen3-TTS tourne sur ton Mac. Aucune clé nécessaire.")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        Text("Si pas encore installé, lance dans le terminal :")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        Text("bash Scripts/install-local-tts.sh")
-                            .font(.system(size: 11, design: .monospaced))
-                            .padding(6)
-                            .background(Color.black.opacity(0.3))
-                            .cornerRadius(4)
+                    VStack(alignment: .leading, spacing: 8) {
+                        // Status indicator
+                        HStack(spacing: 8) {
+                            Circle()
+                                .fill(voiceManager.localModelStatus == .ready ? Color.green :
+                                      voiceManager.localModelStatus == .installing ? Color.orange : Color.red)
+                                .frame(width: 10, height: 10)
+                            Text(voiceManager.localModelStatusText)
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundColor(voiceManager.localModelStatus == .ready ? .green :
+                                                 voiceManager.localModelStatus == .installing ? .orange : .secondary)
+                        }
+
+                        if voiceManager.localModelStatus == .notInstalled {
+                            Text("Qwen3-TTS tourne 100% sur ton Mac. Gratuit, privé, illimité.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+
+                            Button(action: { voiceManager.installLocalModel() }) {
+                                HStack {
+                                    Image(systemName: "arrow.down.circle.fill")
+                                    Text("Installer Qwen3-TTS (~4 Go)")
+                                }
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 6)
+                            }
+                            .buttonStyle(.borderedProminent)
+                        } else if voiceManager.localModelStatus == .installing {
+                            ProgressView(value: voiceManager.installProgress)
+                                .progressViewStyle(.linear)
+                            Text(voiceManager.installStep)
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        } else if voiceManager.localModelStatus == .ready {
+                            Text("Qwen3-TTS est installé et prêt. Aucune clé nécessaire.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+
+                            // Server status
+                            HStack(spacing: 6) {
+                                Circle()
+                                    .fill(voiceManager.localServerRunning ? Color.green : Color.orange)
+                                    .frame(width: 8, height: 8)
+                                Text(voiceManager.localServerRunning ? "Serveur actif" : "Serveur arrêté (démarre auto)")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
                     }
 
                 case .fish:
