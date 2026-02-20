@@ -29,6 +29,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             button.image = NSImage(systemSymbolName: "mic.badge.plus", accessibilityDescription: "Voice Clone Memo")
             button.action = #selector(togglePopover)
             button.target = self
+            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
 
         popover = NSPopover()
@@ -98,11 +99,30 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func togglePopover() {
         guard let button = statusItem.button else { return }
+        let event = NSApp.currentEvent
+
+        // Right-click → context menu
+        if event?.type == .rightMouseUp {
+            let menu = NSMenu()
+            menu.addItem(NSMenuItem(title: "Quitter Voice Clone Memo", action: #selector(quitApp), keyEquivalent: "q"))
+            statusItem.menu = menu
+            button.performClick(nil)
+            // Reset menu so left-click opens popover again
+            DispatchQueue.main.async { self.statusItem.menu = nil }
+            return
+        }
+
+        // Left-click → popover
         if popover.isShown {
             popover.performClose(nil)
         } else {
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             NSApp.activate(ignoringOtherApps: true)
         }
+    }
+
+    @objc func quitApp() {
+        localServer?.terminate()
+        NSApp.terminate(nil)
     }
 }
