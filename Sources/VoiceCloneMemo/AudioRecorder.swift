@@ -5,10 +5,12 @@ class AudioRecorder: NSObject, ObservableObject {
     @Published var isRecording = false
     @Published var recordingTime: TimeInterval = 0
     @Published var permissionDenied = false
+    @Published var isPulsing = false
 
     private var audioRecorder: AVAudioRecorder?
     private var timer: Timer?
     private var currentRecordingURL: URL?
+    private var pulseTimer: Timer?
 
     var recordingURL: URL {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
@@ -57,8 +59,15 @@ class AudioRecorder: NSObject, ObservableObject {
             audioRecorder?.record()
             isRecording = true
             recordingTime = 0
-            timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-                self?.recordingTime += 0.1
+            isPulsing = true
+            // Update time every second (smoother UI)
+            timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+                guard let self = self, self.isRecording else { return }
+                self.recordingTime = self.audioRecorder?.currentTime ?? self.recordingTime + 1
+            }
+            // Pulse animation toggle
+            pulseTimer = Timer.scheduledTimer(withTimeInterval: 0.8, repeats: true) { [weak self] _ in
+                self?.isPulsing.toggle()
             }
         } catch {
             print("Recording failed: \(error)")
@@ -69,7 +78,9 @@ class AudioRecorder: NSObject, ObservableObject {
     func stopRecording() -> URL? {
         audioRecorder?.stop()
         timer?.invalidate()
+        pulseTimer?.invalidate()
         isRecording = false
+        isPulsing = false
         return currentRecordingURL
     }
 

@@ -257,15 +257,16 @@ struct MainView: View {
                             Circle()
                                 .fill(Color.red)
                                 .frame(width: 12, height: 12)
-                                .opacity(voiceManager.recorder.recordingTime.truncatingRemainder(dividingBy: 1.0) < 0.5 ? 1.0 : 0.3)
-                                .animation(.easeInOut(duration: 0.5).repeatForever(autoreverses: true), value: voiceManager.recorder.recordingTime)
+                                .opacity(voiceManager.recorder.isPulsing ? 1.0 : 0.3)
+                                .animation(.easeInOut(duration: 0.4), value: voiceManager.recorder.isPulsing)
                             Text("Enregistrement en cours")
                                 .font(.system(size: 13, weight: .semibold))
                                 .foregroundColor(.red)
                             Spacer()
-                            Text(String(format: "%.1fs", voiceManager.recorder.recordingTime))
-                                .font(.system(size: 20, weight: .bold, design: .rounded))
+                            Text(String(format: "%.0fs", voiceManager.recorder.recordingTime))
+                                .font(.system(size: 24, weight: .bold, design: .rounded))
                                 .foregroundColor(.red)
+                                .monospacedDigit()
                         }
                         .padding(12)
                         .background(RoundedRectangle(cornerRadius: 10).fill(Color.red.opacity(0.08)))
@@ -290,6 +291,9 @@ struct MainView: View {
                     // Normal state: record + import buttons
                     HStack(spacing: 12) {
                         Button(action: {
+                            showNameInput = false
+                            newVoiceName = ""
+                            newVoiceTranscript = ""
                             voiceManager.recorder.startRecording()
                         }) {
                             HStack {
