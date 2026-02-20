@@ -18,6 +18,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var popover: NSPopover!
     var voiceManager = VoiceManager()
     var setupManager = SetupManager()
+    var autoUpdater = AutoUpdater()
     var localServer: Process?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -56,7 +57,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             )
         } else {
             popover.contentViewController = NSHostingController(
-                rootView: MainView(voiceManager: voiceManager)
+                rootView: MainView(voiceManager: voiceManager, autoUpdater: autoUpdater)
             )
         }
     }

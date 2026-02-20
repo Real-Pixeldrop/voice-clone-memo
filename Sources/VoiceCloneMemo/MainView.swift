@@ -3,6 +3,7 @@ import AppKit
 
 struct MainView: View {
     @ObservedObject var voiceManager: VoiceManager
+    @ObservedObject var autoUpdater: AutoUpdater
     @State private var currentTab = 0
     @State private var text = ""
     @State private var selectedProfile: VoiceProfile?
@@ -26,8 +27,16 @@ struct MainView: View {
                     .fontWeight(.bold)
                 Spacer()
                 Button(action: { showSettings.toggle() }) {
-                    Image(systemName: "gear")
-                        .font(.title3)
+                    ZStack(alignment: .topTrailing) {
+                        Image(systemName: "gear")
+                            .font(.title3)
+                        if autoUpdater.updateAvailable {
+                            Circle()
+                                .fill(Color.red)
+                                .frame(width: 8, height: 8)
+                                .offset(x: 3, y: -3)
+                        }
+                    }
                 }
                 .buttonStyle(.plain)
             }
@@ -92,6 +101,14 @@ struct MainView: View {
                     Text("Configure ton provider — clique ⚙️")
                         .font(.caption)
                         .foregroundColor(.secondary)
+                }
+            } else if voiceManager.config.provider == .local && voiceManager.localModelStatus == .notInstalled {
+                HStack {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundColor(.orange)
+                    Text("Qwen3 pas installé. Va dans ⚙️ pour l'installer.")
+                        .font(.caption)
+                        .foregroundColor(.orange)
                 }
             }
 
@@ -512,6 +529,57 @@ struct MainView: View {
                             .foregroundColor(.secondary)
                     }
                 }
+
+                Divider()
+
+                // Auto-update section
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Mise à jour")
+                        .font(.headline)
+
+                    if autoUpdater.updateAvailable {
+                        HStack(spacing: 8) {
+                            Image(systemName: "arrow.down.circle.fill")
+                                .foregroundColor(.blue)
+                                .font(.title3)
+                            VStack(alignment: .leading) {
+                                Text("v\(autoUpdater.latestVersion) disponible")
+                                    .font(.system(size: 13, weight: .medium))
+                                Text("Nouvelle version prête à installer")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+
+                        if autoUpdater.isUpdating {
+                            ProgressView()
+                                .scaleEffect(0.8)
+                            Text(autoUpdater.updateStatus)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        } else {
+                            Button(action: { autoUpdater.performUpdate() }) {
+                                HStack {
+                                    Image(systemName: "arrow.triangle.2.circlepath")
+                                    Text("Mettre à jour")
+                                }
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 6)
+                            }
+                            .buttonStyle(.borderedProminent)
+                        }
+                    } else {
+                        HStack(spacing: 8) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(.green)
+                            Text("À jour (v4.2.0)")
+                                .font(.system(size: 13))
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+
+                Divider()
 
                 HStack {
                     Button("Annuler") { showSettings = false }

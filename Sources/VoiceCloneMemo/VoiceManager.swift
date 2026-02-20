@@ -1114,7 +1114,7 @@ class VoiceManager: ObservableObject {
 
     var isConfigured: Bool {
         switch config.provider {
-        case .local: return true
+        case .local: return localModelStatus == .ready
         case .fish: return !config.fishKey.isEmpty
         case .qwen: return !config.qwenKey.isEmpty
         case .elevenLabs: return !config.elevenLabsKey.isEmpty
